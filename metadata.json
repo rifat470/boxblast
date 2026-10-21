@@ -1,0 +1,6 @@
+{
+  "name": "BoxBlast",
+  "description": "Telegram tap game: blast boxes, beat your best score. Optional rewarded ads for bonus coins.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
