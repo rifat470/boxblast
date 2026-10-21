@@ -48,3 +48,9 @@ git push -u origin main
 
 ## সাপ্তাহিক রক্ষণাবেক্ষণ
 Supabase SQL Editor এ: `delete from public.ad_events where created_at < now() - interval '2 days';`
+
+## সমস্যা হলে (Server error)
+ব্রাউজারে `https://আপনার-অ্যাপ.vercel.app/api/health` খুলুন।
+- কোনো ভ্যালু `false` হলে: Vercel → Settings → Environment Variables এ সেটা বসিয়ে **Redeploy** করুন।
+- `players_table` এ `error` দেখালে: Supabase SQL Editor এ `supabase/schema.sql` আবার Run করুন। `Invalid API key` দেখালে `service_role` key ঠিক আছে কিনা দেখুন (anon key নয়)।
+- সব `ok` হলে: Vercel → Logs এ রানটাইম এরর দেখুন।

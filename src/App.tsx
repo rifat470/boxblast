@@ -143,12 +143,15 @@ export default function App() {
       <div className="center">
         <b className="mark">BoxBlast</b>
         <p>{err}</p>
+        <button className="btn" style={{ maxWidth: 240, margin: '14px auto 8px' }} onClick={() => location.reload()}>
+          Try again
+        </button>
         <a
           href="https://t.me/BoxBlastGame_bot"
           target="_blank"
           rel="noreferrer"
-          className="btn"
-          style={{ maxWidth: 240, margin: '14px auto 0', textDecoration: 'none', display: 'inline-block' }}
+          className="btn ghost"
+          style={{ maxWidth: 240, margin: '0 auto', textDecoration: 'none', display: 'inline-block' }}
         >
           Open in Telegram
         </a>

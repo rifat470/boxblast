@@ -154,6 +154,7 @@ export default async function handler(req: any, res: any) {
   } catch (e: any) {
     const status = e instanceof HttpError ? e.status : 500;
     if (status === 500) console.error(e);
-    return res.status(status).json({ error: status === 500 ? 'Server error' : e.message });
+    const msg = e instanceof HttpError ? e.message : `Server error${e?.code ? ' (' + e.code + ')' : ''}`;
+    return res.status(status).json({ error: msg });
   }
 }
