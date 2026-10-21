@@ -1,13 +1,21 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type JSX } from 'react';
 import { call, fmt, tg, type State } from './api';
 import { watchAd } from './ads';
 import Play from './Play';
 import Mine from './Mine';
 import Earn from './Earn';
 import Friends from './Friends';
+import Profile from './Profile';
+import { applyTheme } from './theme';
+import { IconBlast, IconEarn, IconFriends, IconProfile, IconUp } from './icons';
 
-type Tab = 'play' | 'mine' | 'earn' | 'friends';
-const TABS: [Tab, string][] = [['play', 'Blast'], ['mine', 'Upgrades'], ['earn', 'Earn'], ['friends', 'Friends']];
+type Tab = 'play' | 'mine' | 'earn' | 'friends' | 'profile';
+const TABS: [Tab, string, () => JSX.Element][] = [
+  ['play', 'Blast', IconBlast], ['mine', 'Upgrades', IconUp], ['earn', 'Earn', IconEarn],
+  ['friends', 'Friends', IconFriends], ['profile', 'Profile', IconProfile],
+];
+const lsGet = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
+const lsSet = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* ignore */ } };
 type B = { perfect: boolean; pts: number };
 const sum = (a: B[]) => a.reduce((s, b) => s + b.pts, 0);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -29,6 +37,7 @@ export default function App() {
   const [pend, setPend] = useState({ coins: 0, n: 0 });
   const [nowMs, setNowMs] = useState(Date.now());
   const [adBusy, setAdBusy] = useState(false);
+  const [lvlUp, setLvlUp] = useState<number | null>(null);
   const q = useRef<B[]>([]);
   const inflight = useRef<B[]>([]);
   const flying = useRef<Promise<void> | null>(null);
@@ -80,8 +89,6 @@ export default function App() {
       w?.ready();
       w?.expand();
       w?.disableVerticalSwipes?.();
-      w?.setHeaderColor?.('#12151c');
-      w?.setBackgroundColor?.('#12151c');
     } catch { /* ignore */ }
     if (!w?.initData) {
       setErr('Open BoxBlast inside Telegram to play.');
@@ -99,6 +106,18 @@ export default function App() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Whole app look follows the level. A level-up pops a celebration once.
+  const lvl = s?.level.lvl ?? 0;
+  useEffect(() => {
+    if (!lvl) return;
+    applyTheme(lvl);
+    const key = 'bb_lvl_seen_' + (s?.id ?? 0);
+    const seen = Number(lsGet(key) || 0);
+    if (seen && lvl > seen) setLvlUp(lvl);
+    lsSet(key, String(Math.max(seen, lvl)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lvl]);
 
   const act = async (action: string, extra: object = {}) => {
     await flushAll();
@@ -163,17 +182,31 @@ export default function App() {
   const secs = Math.max(0, (nowMs - s.clientAt) / 1000);
   const liveCoins = s.coins + pend.coins + Math.floor((s.pph * Math.min(secs, 10800)) / 3600);
   const liveEnergy = Math.max(0, Math.min(s.maxEnergy, s.energy + Math.floor(secs * s.regen)) - pend.n);
+  const lvlPct = s.level.next
+    ? Math.max(2, Math.min(100, ((s.totalEarned - s.level.at) / (s.level.next.at - s.level.at)) * 100))
+    : 100;
   const ctx: Ctx = { s, nowMs, act, flash, adFor, adBusy };
 
   return (
     <div className="app">
       <header className="top">
-        <div>
-          <b className="mark">BoxBlast</b>
-          <div className="sub">{s.name} · +{fmt(s.pph)} / hour</div>
+        <div className="who">
+          <span className="avatar" aria-hidden="true">{(s.name || '?').slice(0, 1).toUpperCase()}</span>
+          <div>
+            <b className="mark">{s.name}</b>
+            <div className="sub">Lv {s.level.lvl} · {s.level.name} · +{fmt(s.pph)} / hour</div>
+          </div>
         </div>
         <div className="chip" aria-label="Coins">{fmt(liveCoins)}</div>
       </header>
+      <div className="lvlbar" aria-label="Level progress">
+        <div className="lvlfill" style={{ width: `${lvlPct}%` }} />
+        <span>
+          {s.level.next
+            ? `Level ${s.level.next.lvl} ${s.level.next.name}: ${fmt(Math.min(s.totalEarned, s.level.next.at))} / ${fmt(s.level.next.at)}`
+            : 'Maximum level reached'}
+        </span>
+      </div>
 
       <main>
         {tab === 'play' && (
@@ -189,21 +222,51 @@ export default function App() {
         {tab === 'mine' && <Mine ctx={ctx} coins={liveCoins} />}
         {tab === 'earn' && <Earn ctx={ctx} />}
         {tab === 'friends' && <Friends ctx={ctx} />}
+        {tab === 'profile' && <Profile ctx={ctx} />}
       </main>
 
       {toast && <div className="toast" role="status">{toast}</div>}
 
+      {lvlUp && (() => {
+        const L = s.levels.find((x) => x.lvl === lvlUp);
+        const sk = s.skins.find((x) => x.level === lvlUp);
+        return (
+          <div className="modal" role="dialog" aria-modal="true">
+            <div className="card">
+              <div className="burst" aria-hidden="true">LEVEL UP</div>
+              <h2>Level {lvlUp}: {L?.name}</h2>
+              <p className="small muted">The whole warehouse has a new look{sk ? ` and a new box design is unlocked: ${sk.name}.` : '.'}</p>
+              <div className="stack">
+                {L && !L.claimed && (
+                  <button className="btn" onClick={async () => { const r = await act('claimLevel', { lvl: lvlUp }); if (r) flash(`+${fmt(r.result.reward)} coins`); }}>
+                    Claim {fmt(L.reward)} coins
+                  </button>
+                )}
+                {sk && (
+                  <button className="btn ghost" onClick={async () => { await act('setSkin', { id: sk.id }); setLvlUp(null); setTab('play'); }}>
+                    Use the new box
+                  </button>
+                )}
+                <button className="btn ghost" onClick={() => setLvlUp(null)}>Continue</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       <nav className="nav">
-        {TABS.map(([k, label]) => (
+        {TABS.map(([k, label, Icon]) => (
           <button
             key={k}
             className={tab === k ? 'on' : ''}
+            aria-label={label}
             onClick={() => {
               void flush();
               setTab(k);
             }}
           >
-            {label}
+            <Icon />
+            <span>{label}</span>
           </button>
         ))}
       </nav>

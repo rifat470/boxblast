@@ -6,7 +6,7 @@ const env = (import.meta as any).env || {};
 const APP_LINK: string = String(env.VITE_APP_LINK || '').trim().replace(/\/+$/, '');
 const BOT_LINK: string = String(env.VITE_BOT_LINK || 'https://t.me/BoxBlastGame_bot').trim().replace(/\/+$/, '');
 
-type Row = { first_name: string; username?: string; total_earned: number };
+type Row = { first_name: string; username?: string; total_earned: number; lvl?: number };
 
 export default function Friends({ ctx }: { ctx: Ctx }) {
   const { s, flash } = ctx;
@@ -51,7 +51,8 @@ export default function Friends({ ctx }: { ctx: Ctx }) {
 
   return (
     <section>
-      <h2>Invite friends</h2>
+      <h2>Your personal invite link</h2>
+      <div className="linkbox" onClick={copy} role="button" tabIndex={0}>{link}</div>
       <p className="small muted">
         You get {fmt(s.refReward.inviter)} coins for every friend who joins. They start with {fmt(s.refReward.invitee)} coins.
         You have invited {s.refCount}.
@@ -74,7 +75,7 @@ export default function Friends({ ctx }: { ctx: Ctx }) {
       {rank > 0 && <p className="small muted">Your rank: #{rank}</p>}
       {top.map((p, i) => (
         <div className="item" key={i}>
-          <div><span className="lvl">#{i + 1}</span> <b>{p.first_name}</b></div>
+          <div><span className="lvl">#{i + 1}</span> <b>{p.first_name}</b> {p.lvl ? <span className="lvl">Lv {p.lvl}</span> : null}</div>
           <span className="muted">{fmt(p.total_earned)}</span>
         </div>
       ))}

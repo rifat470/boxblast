@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { fmt, haptic } from './api';
 import type { Ctx } from './App';
+import { SKIN_STYLES, skinVars } from './theme';
 
 const TRIES = 3;
 type Props = {
@@ -95,7 +96,7 @@ export default function Play({ energy, maxEnergy, regen, tapLevel, onBlast, ctx 
         <span>{combo > 1 ? `${combo} first-try blasts in a row` : 'Each blast uses 1 energy'}</span>
       </div>
 
-      <div className="grid">
+      <div className={'grid ' + (SKIN_STYLES[ctx.s.skin]?.fx || '')} style={skinVars(ctx.s.skin)}>
         {Array.from({ length: 9 }, (_, i) => (
           <button
             key={i + ':' + (shake?.cell === i ? shake.id : 0)}

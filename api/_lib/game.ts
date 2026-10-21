@@ -2,13 +2,15 @@ import { randomInt } from 'node:crypto';
 import {
   AD, BOOSTS, BOOST_MAX, CARDS, CARD_MAX, DAILY, ENERGY_BASE, ENERGY_STEP, MAX_OFFLINE_S,
   MAX_TAPS_PER_S, REGEN_BASE, REGEN_STEP, TASKS, boostCost, cardCost, type BoostKind,
+  LEVELS, LEVEL_ENERGY, REF, SKINS, levelOf,
 } from './config.js';
 import { HttpError, type Player } from './db.js';
 
 const iso = (ms: number) => new Date(ms).toISOString();
 export const day = (ms: number) => iso(ms).slice(0, 10);
 
-export const maxEnergy = (p: Player) => ENERGY_BASE + (p.energy_level - 1) * ENERGY_STEP;
+export const maxEnergy = (p: Player) =>
+  ENERGY_BASE + (p.energy_level - 1) * ENERGY_STEP + (levelOf(p.total_earned).lvl - 1) * LEVEL_ENERGY;
 export const regenRate = (p: Player) => REGEN_BASE + (p.regen_level - 1) * REGEN_STEP;
 
 export function newPlayer(user: { id: number; first_name?: string; username?: string }, now: number) {
@@ -68,6 +70,7 @@ export function blast(p: Player, list: { perfect?: boolean }[], now: number) {
     gain += base + (list[i]?.perfect ? 2 : 0) + (p.tap_level - 1) * 2;
   }
   p.energy -= n;
+  p.total_blasts = (p.total_blasts || 0) + n;
   earn(p, gain);
   p.last_sync_at = iso(now);
   return { player: p, result: { counted: n, gained: gain } };
@@ -122,6 +125,25 @@ export function claimTask(p: Player, id: string, now: number) {
   return { player: p, result: { reward: t.reward } };
 }
 
+export function claimLevel(p: Player, lvl: number, now: number) {
+  const L = LEVELS.find((x) => x.lvl === lvl);
+  if (!L || L.lvl < 2) throw new HttpError(400, 'Unknown level');
+  if (levelOf(p.total_earned).lvl < L.lvl) throw new HttpError(409, 'Level not reached yet');
+  const key = `lvl_${L.lvl}`;
+  if (p.claimed[key]) throw new HttpError(409, 'Already claimed');
+  p.claimed = { ...p.claimed, [key]: now };
+  earn(p, L.reward);
+  return { player: p, result: { reward: L.reward } };
+}
+
+export function setSkin(p: Player, id: string) {
+  const sk = SKINS.find((x) => x.id === id);
+  if (!sk) throw new HttpError(400, 'Unknown box design');
+  if (levelOf(p.total_earned).lvl < sk.level) throw new HttpError(409, `Unlocks at level ${sk.level}`);
+  p.skin = sk.id;
+  return { player: p };
+}
+
 export function adLimits(p: Player, now: number) {
   const today = day(now);
   const used = p.ads_date === today ? p.ads_today : 0;
@@ -167,9 +189,19 @@ export function view(p: Player, now: number) {
   const ch = (process.env.CHANNEL_USERNAME || '').replace('@', '');
   const l = adLimits(p, now);
   const lvlOf = (k: BoostKind) => (k === 'tap' ? p.tap_level : k === 'energy' ? p.energy_level : p.regen_level);
+  const cur = levelOf(p.total_earned);
+  const nxt = LEVELS.find((x) => x.lvl === cur.lvl + 1) || null;
   return {
     id: p.tg_id,
     name: p.first_name,
+    level: { lvl: cur.lvl, name: cur.name, at: cur.at, next: nxt ? { lvl: nxt.lvl, name: nxt.name, at: nxt.at } : null },
+    levels: LEVELS.map((l) => ({
+      lvl: l.lvl, name: l.name, at: l.at, reward: l.reward,
+      reached: cur.lvl >= l.lvl, claimed: l.lvl < 2 || !!p.claimed[`lvl_${l.lvl}`],
+    })),
+    skin: SKINS.some((x) => x.id === p.skin && x.level <= cur.lvl) ? p.skin : 'classic',
+    skins: SKINS.map((x) => ({ id: x.id, name: x.name, level: x.level, unlocked: cur.lvl >= x.level })),
+    totalBlasts: p.total_blasts || 0,
     coins: p.coins,
     totalEarned: p.total_earned,
     energy: p.energy,
@@ -196,7 +228,7 @@ export function view(p: Player, now: number) {
     },
     ads: { left: l.left, nextAt: l.nextAt, reward: AD.reward },
     refCount: p.ref_count,
-    refReward: { inviter: 2500, invitee: 1000 },
+    refReward: { inviter: REF.inviter, invitee: REF.invitee },
     tasks: taskList(p, ch ? `https://t.me/${ch}` : null),
     now,
   };

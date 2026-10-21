@@ -4,7 +4,11 @@ export type TaskT = {
   id: string; title: string; reward: number; kind: string; target: number;
   progress: number; claimed: boolean; url: string | null;
 };
+export type LevelInfo = { lvl: number; name: string; at: number; reward: number; reached: boolean; claimed: boolean };
+export type SkinInfo = { id: string; name: string; level: number; unlocked: boolean };
 export type State = {
+  level: { lvl: number; name: string; at: number; next: { lvl: number; name: string; at: number } | null };
+  levels: LevelInfo[]; skin: string; skins: SkinInfo[]; totalBlasts: number;
   id: number; name: string; coins: number; totalEarned: number; energy: number; maxEnergy: number;
   regen: number; pph: number; tapLevel: number; boosts: Boost[]; cards: CardT[];
   daily: { rewards: number[]; claimedToday: boolean; filled: number };

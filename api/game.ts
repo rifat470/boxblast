@@ -1,8 +1,8 @@
 import { verifyInitData } from './_lib/auth.js';
 import { db, getPlayer, HttpError, mutate, type Player } from './_lib/db.js';
-import { AD, REF, TASKS } from './_lib/config.js';
+import { AD, REF, TASKS, levelOf } from './_lib/config.js';
 import {
-  blast, buyBoost, buyCard, checkAdAllowed, claimDaily, claimTask, grantAd, newPlayer, settle, view,
+  blast, buyBoost, buyCard, checkAdAllowed, claimDaily, claimLevel, claimTask, grantAd, newPlayer, setSkin, settle, view,
 } from './_lib/game.js';
 
 const bad = (m: string) => new HttpError(400, m);
@@ -20,6 +20,9 @@ async function isChannelMember(userId: number) {
 
 async function init(auth: { user: any; startParam: string }, now: number) {
   const { user, startParam } = auth;
+  // An existing player ALWAYS gets the same account back (keyed by Telegram id), no matter how they
+  // open the app: fresh install, after logout, or through someone else's invite link.
+  // The invite code is only ever read when the account is created for the very first time.
   let p = await getPlayer(user.id);
   if (!p) {
     const base: any = { ...newPlayer(user, now) };
@@ -76,6 +79,10 @@ async function route(auth: { user: any; startParam: string }, body: any) {
       return act((s) => buyCard(s, String(body.id)));
     case 'buyBoost':
       return act((s) => buyBoost(s, String(body.id)));
+    case 'claimLevel':
+      return act((s) => claimLevel(s, Number(body.lvl), now));
+    case 'setSkin':
+      return act((s) => setSkin(s, String(body.id)));
     case 'claimDaily':
       return act((s) => claimDaily(s, now));
     case 'claimTask': {
@@ -124,7 +131,10 @@ async function route(auth: { user: any; startParam: string }, body: any) {
         .from('players')
         .select('tg_id', { count: 'exact', head: true })
         .gt('total_earned', me?.total_earned ?? 0);
-      return { top: data || [], rank: (count ?? 0) + 1 };
+      return {
+        top: (data || []).map((r: any) => ({ ...r, lvl: levelOf(r.total_earned).lvl })),
+        rank: (count ?? 0) + 1,
+      };
     }
     case 'friends': {
       const { data } = await db()

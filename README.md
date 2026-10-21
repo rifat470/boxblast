@@ -1,56 +1,71 @@
-# BoxBlast v2 — সেটআপ গাইড (Vercel + Supabase)
+# BoxBlast v3 — সেটআপ ও আপডেট গাইড (Vercel + Supabase)
 
-## ১. Supabase
+## v3 তে নতুন কী
+- **১০টি লেভেল** (Rookie → Legend): মোট আয় অনুযায়ী লেভেল বাড়ে। খরচ করলে লেভেল কমে না।
+- **লেভেল বাড়লে পুরো এপের কালার/লুক অটো বদলায়** (১০টি আলাদা থিম) + লেভেল-আপ পপআপ ও রিওয়ার্ড।
+- **১০টি বক্স ডিজাইন** (Classic, Ocean, Emerald, Sunset, Royal, Rose, Neon, Lava, Gold, Diamond), প্রতি লেভেলে একটি আনলক।
+- **Profile ট্যাব**: স্ট্যাটাস, বক্স কালেকশন, লেভেল লিস্ট, **How to play** (ইউজার ম্যানুয়াল), **Privacy** (পলিসি)।
+- প্রত্যেক ইউজারের নিজস্ব রেফার লিংক (Friends ট্যাবে বড় করে দেখায়)।
+- `public/privacy.html` — সম্পূর্ণ প্রাইভেসি পলিসি পেজ (`https://আপনার-অ্যাপ.vercel.app/privacy.html`)।
+- ডাটা সুরক্ষা: প্লেয়ার রো ডিলিট করা যায় না, ব্যালেন্স নেগেটিভ হয় না, SQL রি-রান করলেও কিছু মোছে না।
+
+## ডাটা কেন হারাবে না (গুরুত্বপূর্ণ)
+- অ্যাকাউন্টের চাবি = **টেলিগ্রাম ইউজার আইডি**। এপ ডিলিট, লগআউট, নতুন ডিভাইস বা অন্য কারো রেফার লিংকে ঢুকলেও একই অ্যাকাউন্ট ও ব্যালেন্স ফেরত আসে।
+- রেফার কোড শুধু **প্রথমবার** অ্যাকাউন্ট তৈরির সময় পড়া হয়। পুরোনো ইউজারের ক্ষেত্রে উপেক্ষা করা হয়।
+- সব ডাটা Supabase এ থাকে, ব্রাউজারে না। আপডেট দিলে শুধু কোড বদলায়, ডাটাবেস রো বদলায় না।
+
+## ১. পুরোনো ইউজারসহ আপডেট করার সঠিক ক্রম (এই ক্রম মানুন)
+1. **আগে Supabase**: SQL Editor → New query → `supabase/schema.sql` পুরোটা পেস্ট → **Run**।
+   এটা বারবার চালানো নিরাপদ; শুধু নতুন কলাম (`skin`, `total_blasts`) যোগ করে, কোনো ডাটা মোছে না।
+   (ঐচ্ছিক কিন্তু ভালো: Supabase → Database → Backups থেকে আগে একটা ব্যাকআপ নিন।)
+2. **তারপর কোড**: নতুন ফাইলগুলো GitHub এ পুশ করুন, Vercel অটো ডিপ্লয় করবে।
+3. `https://আপনার-অ্যাপ.vercel.app/api/health` খুলুন। সব `true`/`ok` এবং `migration_v3: "ok"` হলে সব ঠিক।
+
+> ক্রম উল্টো করলে (আগে কোড, পরে SQL) এপ কিছুক্ষণ error দেখাবে, কিন্তু ডাটা নষ্ট হবে না।
+
+## ২. প্রথমবার সেটআপ
+### Supabase
 1. supabase.com এ নতুন প্রজেক্ট খুলুন।
-2. **SQL Editor → New query** এ `supabase/schema.sql` এর পুরো লেখা পেস্ট করে **Run** চাপুন।
-3. **Settings → API** থেকে `Project URL` আর `service_role` key কপি করুন (service_role key কাউকে দেবেন না)।
+2. `supabase/schema.sql` রান করুন।
+3. **Settings → API** থেকে `Project URL` ও `service_role` key নিন (service_role কাউকে দেবেন না)।
 
-## ২. GitHub এ পুশ করার নিয়ম
-টার্মিনালে এই কমান্ডগুলো পরপর রান করুন:
+### GitHub
 ```bash
 git init
 git add .
-git commit -m "feat: BoxBlast v2 complete setup with backend validation and Supabase"
+git commit -m "BoxBlast v3"
 git branch -M main
-git remote add origin https://github.com/<আপনার-ইউজারনেম>/<আপনার-রিপো-নাম>.git
+git remote add origin https://github.com/<ইউজারনেম>/<রিপো>.git
 git push -u origin main
 ```
 
-## ৩. Vercel এ ডিপ্লয়
-1. Vercel ড্যাশবোর্ডে গিয়ে **Add New → Project** চাপুন।
-2. আপনার GitHub রিপোজিটরি ইমপোর্ট করুন (Framework: **Vite**)।
-3. **Settings → Environment Variables** এ গিয়ে `.env.example` ফাইলে থাকা সব ভেরিয়েবল সেট করুন।
-4. **Deploy** বাটনে ক্লিক করুন।
+### Vercel
+1. **Add New → Project** → রিপো ইমপোর্ট (Framework: Vite)।
+2. **Environment Variables** এ `.env.example` এর সব ভেরিয়েবল বসান।
+3. Deploy।
 
+### BotFather
+- `/myapps` → Web App URL = আপনার Vercel লিংক।
+- Direct link (`https://t.me/BOT/app`) পেলে `VITE_APP_LINK` এ বসান। এটা দিলেই প্রতিটি ইউজারের লিংক হবে `https://t.me/BOT/app?startapp=ref_<তার আইডি>`।
+- চ্যানেল টাস্ক চাইলে: চ্যানেল বানান, বটকে admin করুন, `CHANNEL_USERNAME` বসান।
 
-## ৪. BotFather
-- `/myapps` এ অ্যাপের Web App URL = আপনার Vercel লিংক।
-- Main Mini App বা direct link (`https://t.me/BOT/app`) পেলে `VITE_APP_LINK` এ বসান (রেফারেল লিংকের জন্য)।
-- চ্যানেল টাস্ক চাইলে: চ্যানেল বানান, বটকে চ্যানেলের admin করুন, `CHANNEL_USERNAME` বসান।
+## ৩. প্রাইভেসি পলিসি
+- `public/privacy.html` ফাইলের একদম নিচে `[YOUR_CONTACT_EMAIL_OR_TELEGRAM_USERNAME]` এর জায়গায় আপনার আসল যোগাযোগ বসান (ইমেইল বা টেলিগ্রাম)।
+- লিংকটা Adsgram ফর্মে ও বটের About/Description এ দিতে পারেন।
 
-## ৫. Adsgram (partner.adsgram.ai)
-1. আগের declined প্ল্যাটফর্ম আর কাজ করবে না। নতুন ভার্সন Deploy হওয়ার পর support এ লিখুন (নিচে `docs/adsgram-resubmit.md` দেখুন)।
-2. প্ল্যাটফর্ম অনুমোদন হলে **Reward** টাইপের ব্লক বানান।
+## ৪. Adsgram (partner.adsgram.ai)
+1. `docs/adsgram-resubmit.md` এর বার্তা সাপোর্টে পাঠান (আপনার URL বসিয়ে)। আগের প্ল্যাটফর্ম (ID 52207) রিভিউ না নিলে নতুন ডিপ্লয় URL দিয়ে নতুন প্ল্যাটফর্ম যোগ করুন।
+2. অনুমোদনের পর **Reward** টাইপ ব্লক বানান।
    - **Reward URL**: `https://আপনার-অ্যাপ.vercel.app/api/ad-reward?userid=[userId]&secret=আপনার_AD_REWARD_SECRET`
-   - ব্লক ID শুধু সংখ্যা (যেমন `12345`)। `int-` দিয়ে শুরু হলে সেটা Interstitial, Reward না।
-3. ব্লক ID টা Vercel এ `VITE_ADSGRAM_BLOCK_ID` এ বসিয়ে Redeploy করুন।
-4. ব্লকও মডারেশনে যায়। সাধারণত ৪-৬ ঘণ্টা (উইকএন্ডে ৬-১০)।
+   - ব্লক ID শুধু সংখ্যা (`int-` দিয়ে শুরু হলে সেটা Interstitial)।
+3. ব্লক ID `VITE_ADSGRAM_BLOCK_ID` এ বসিয়ে Redeploy করুন।
 
-## ৬. টেস্ট
-- টেলিগ্রামে বট খুলে খেলুন। ব্রাউজারে খুললে "Open inside Telegram" দেখাবে, এটা ঠিক আছে।
-- অ্যাড টেস্টে `src/ads.ts` এ `Adsgram.init({ blockId, debug: true })` দিতে পারেন, কিন্তু প্রোডাকশনে `debug` মুছে ফেলুন।
+## ৫. ভবিষ্যতে আবার আপডেট দিলে
+- নতুন কোড পুশ করুন। যদি `supabase/schema.sql` বদলে থাকে, আগে সেটা Supabase এ রান করুন (নিরাপদ)।
+- কখনো `drop table`, `truncate` বা `delete from players` চালাবেন না।
 
-## কী কী আছে
-- সার্ভার-যাচাইকৃত লগইন (Telegram initData HMAC), সব কয়েন/এনার্জি/আপগ্রেড সার্ভারে।
-- বক্স-ব্লাস্ট গেম + এনার্জি, বুস্ট, প্যাসিভ ইনকামের ওয়্যারহাউস আপগ্রেড।
-- ডেইলি রিওয়ার্ড, টাস্ক, রেফারেল (সার্ভারে গোনা), লিডারবোর্ড।
-- ঐচ্ছিক রিওয়ার্ডেড অ্যাড: শুধু বাটনে ট্যাপ করলে চলে, Adsgram এর server callback দিয়ে যাচাই হয়, দিনে সর্বোচ্চ ১০টা।
-
-## সাপ্তাহিক রক্ষণাবেক্ষণ
-Supabase SQL Editor এ: `delete from public.ad_events where created_at < now() - interval '2 days';`
-
-## সমস্যা হলে (Server error)
-ব্রাউজারে `https://আপনার-অ্যাপ.vercel.app/api/health` খুলুন।
-- কোনো ভ্যালু `false` হলে: Vercel → Settings → Environment Variables এ সেটা বসিয়ে **Redeploy** করুন।
-- `players_table` এ `error` দেখালে: Supabase SQL Editor এ `supabase/schema.sql` আবার Run করুন। `Invalid API key` দেখালে `service_role` key ঠিক আছে কিনা দেখুন (anon key নয়)।
-- সব `ok` হলে: Vercel → Logs এ রানটাইম এরর দেখুন।
+## ফাইল কাঠামো
+- `src/` — ফ্রন্টএন্ড (React)। `theme.ts` এ লেভেল থিম ও বক্স ডিজাইনের রং।
+- `api/` — সার্ভার (Vercel functions)। `api/_lib/config.ts` এ লেভেল, রিওয়ার্ড, ইকোনমি।
+- `supabase/schema.sql` — ডাটাবেস।
+- `USER_MANUAL.md` — ইউজার ম্যানুয়াল (ইংরেজি, এপের Guide এর অনুরূপ)।
