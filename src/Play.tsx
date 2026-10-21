@@ -1,30 +1,52 @@
 import { useEffect, useRef, useState } from 'react';
 import { fmt, haptic } from './api';
 import type { Ctx } from './App';
-import { SKIN_STYLES, skinVars } from './theme';
+import { getLevelConfig } from './theme';
+import CrateVisual from './CrateVisual';
+import { sound, triggerConfetti, spawnFlyingCoins } from './effects';
 
 const TRIES = 3;
-type Props = {
-  energy: number; maxEnergy: number; regen: number; tapLevel: number;
-  onBlast: (perfect: boolean, pts: number) => void; ctx: Ctx;
-};
 
-export default function Play({ energy, maxEnergy, regen, tapLevel, onBlast, ctx }: Props) {
+interface PlayProps {
+  energy: number;
+  maxEnergy: number;
+  regen: number;
+  tapLevel: number;
+  onBlast: (perfect: boolean, pts: number) => void;
+  ctx: Ctx;
+  currentLevel: number;
+  onCoinHit: () => void;
+}
+
+export default function Play({
+  energy,
+  maxEnergy,
+  regen,
+  tapLevel,
+  onBlast,
+  ctx,
+  currentLevel,
+  onCoinHit,
+}: PlayProps) {
   const energyRef = useRef(energy);
   energyRef.current = energy;
+
   const boxRef = useRef(Math.floor(Math.random() * 9));
   const triesRef = useRef(TRIES);
   const moveT = useRef(0);
   const lastTap = useRef(0);
   const alive = useRef(true);
+
   const [tries, setTries] = useState(TRIES);
   const [glim, setGlim] = useState<{ cell: number; id: number } | null>(null);
   const [pop, setPop] = useState<{ cell: number; pts: number; gold: boolean; id: number } | null>(null);
   const [shake, setShake] = useState<{ cell: number; id: number } | null>(null);
   const [combo, setCombo] = useState(0);
 
-  // The hidden box keeps changing crates; a glint shows where it went (not always truthfully).
-  const move = () => {
+  const levelCfg = getLevelConfig(currentLevel);
+
+  // The hidden box shifts crates; a yellow glint indicates where it went
+  const scheduleMove = () => {
     clearTimeout(moveT.current);
     moveT.current = window.setTimeout(() => {
       if (!alive.current) return;
@@ -32,14 +54,18 @@ export default function Play({ energy, maxEnergy, regen, tapLevel, onBlast, ctx 
         let c = Math.floor(Math.random() * 9);
         if (c === boxRef.current) c = (c + 1 + Math.floor(Math.random() * 8)) % 9;
         boxRef.current = c;
-        setGlim({ cell: Math.random() < 0.4 ? c : Math.floor(Math.random() * 9), id: Date.now() });
+
+        // 45% truthful glint, 55% decoy glint
+        const glintCell = Math.random() < 0.45 ? c : Math.floor(Math.random() * 9);
+        setGlim({ cell: glintCell, id: Date.now() });
       }
-      move();
-    }, 800);
+      scheduleMove();
+    }, 1100);
   };
+
   useEffect(() => {
     alive.current = true;
-    move();
+    scheduleMove();
     return () => {
       alive.current = false;
       clearTimeout(moveT.current);
@@ -47,33 +73,62 @@ export default function Play({ energy, maxEnergy, regen, tapLevel, onBlast, ctx 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const tap = (i: number) => {
+  const tap = (i: number, e?: React.PointerEvent<HTMLButtonElement>) => {
     const now = Date.now();
-    if (now - lastTap.current < 110) return;
+    if (now - lastTap.current < 90) return;
     lastTap.current = now;
-    if (energyRef.current <= 0) return;
+
+    if (energyRef.current <= 0) {
+      sound.playMiss();
+      ctx.flash('Out of energy! Tap the refill button or wait for recharge.');
+      return;
+    }
+
     if (i === boxRef.current) {
+      // HIT!
       const perfect = triesRef.current === TRIES;
-      const gold = Math.random() < 0.12;
-      const pts = (gold ? 15 : 1 + Math.floor(Math.random() * 9)) + (perfect ? 2 : 0) + (tapLevel - 1) * 2;
+      const isGold = Math.random() < 0.15;
+      const pts = (isGold ? 15 : 1 + Math.floor(Math.random() * 9)) + (perfect ? 2 : 0) + (tapLevel - 1) * 2;
+
       onBlast(perfect, pts);
       haptic('medium');
-      setPop({ cell: i, pts, gold, id: now });
+      sound.playBlast(isGold);
+
+      setPop({ cell: i, pts, gold: isGold, id: now });
       setCombo((c) => (perfect ? c + 1 : 0));
       triesRef.current = TRIES;
       setTries(TRIES);
+
+      // Trigger Confetti Burst & Flying Coins
+      const targetBtn = e?.currentTarget;
+      let startX = window.innerWidth / 2;
+      let startY = window.innerHeight / 2;
+      if (targetBtn) {
+        const rect = targetBtn.getBoundingClientRect();
+        startX = rect.left + rect.width / 2;
+        startY = rect.top + rect.height / 2;
+      }
+
+      triggerConfetti(startX, startY, [levelCfg.particleColor, '#ffffff', '#ffc107', levelCfg.levelColor]);
+      const coinCounterPill = document.getElementById('coin-counter-pill');
+      spawnFlyingCoins(startX, startY, coinCounterPill, onCoinHit, isGold ? 6 : 4);
+
+      // Shift hidden box to a new crate
       boxRef.current = (i + 1 + Math.floor(Math.random() * 8)) % 9;
-      move();
+      scheduleMove();
     } else {
+      // MISS
       triesRef.current -= 1;
       setTries(triesRef.current);
       setShake({ cell: i, id: now });
       haptic('light');
+      sound.playMiss();
+
       if (triesRef.current <= 0) {
         triesRef.current = TRIES;
         setTries(TRIES);
         setCombo(0);
-        ctx.flash('The box slipped away. A new one is hiding.');
+        ctx.flash('The box slipped away! A new one is hiding.');
         boxRef.current = Math.floor(Math.random() * 9);
       }
     }
@@ -83,39 +138,120 @@ export default function Play({ energy, maxEnergy, regen, tapLevel, onBlast, ctx 
   const canAd = ctx.s.ads.left > 0 && !ctx.adBusy && energy < maxEnergy;
 
   return (
-    <section>
-      <p className="hint">Find the crate hiding the box and tap it. A yellow glint shows where it went, but not every glint is honest.</p>
-      <div className="meter" aria-label="Energy">
-        <div className="fill" style={{ width: `${(energy / maxEnergy) * 100}%` }} />
-        <span>{Math.floor(energy)} / {maxEnergy} energy</span>
+    <section className="relative z-10">
+      {/* Instruction Box */}
+      <div className="instruction-box">
+        <p className="instruction-text">
+          Find the crate hiding the box and tap it. A yellow glint shows where it went, but not every glint is honest.
+        </p>
       </div>
-      <div className="row between small">
-        <span className="tapes" aria-label="Tries left">
-          {Array.from({ length: TRIES }, (_, i) => <i key={i} className={i < tries ? 'on' : ''} />)}
+
+      {/* Energy Bar */}
+      <div className="meter" aria-label="Energy" style={{ borderColor: 'rgba(255, 255, 255, 0.12)' }}>
+        <div
+          className="fill"
+          style={{
+            width: `${Math.min(100, (energy / maxEnergy) * 100)}%`,
+            background: 'linear-gradient(90deg, #ff7e40, #ff5b2e)',
+          }}
+        />
+        <span>
+          {Math.floor(energy)} / {maxEnergy} energy
         </span>
-        <span>{combo > 1 ? `${combo} first-try blasts in a row` : 'Each blast uses 1 energy'}</span>
       </div>
 
-      <div className={'grid ' + (SKIN_STYLES[ctx.s.skin]?.fx || '')} style={skinVars(ctx.s.skin)}>
-        {Array.from({ length: 9 }, (_, i) => (
-          <button
-            key={i + ':' + (shake?.cell === i ? shake.id : 0)}
-            className={'crate' + (shake?.cell === i ? ' shake' : '')}
-            aria-label={`Crate ${i + 1}`}
-            onPointerDown={(e) => { e.preventDefault(); tap(i); }}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); tap(i); } }}
-          >
-            {glim?.cell === i && <span key={glim.id} className="gleam" />}
-            {pop?.cell === i && <span key={pop.id} className={'pop' + (pop.gold ? ' gold' : '')}>+{pop.pts}</span>}
-          </button>
-        ))}
+      {/* Energy Sub-Row: 3 Try Segments + Subtext */}
+      <div className="tapes-row">
+        <div className="tapes" aria-label="Tries left">
+          {Array.from({ length: TRIES }, (_, i) => (
+            <i key={i} className={i < tries ? 'on' : ''} />
+          ))}
+        </div>
+        <span className="energy-subtext">
+          {combo > 1 ? `${combo} perfect blasts in a row!` : 'Each blast uses 1 energy'}
+        </span>
       </div>
 
-      {out && <p className="notice">Out of energy. It recharges {regen} per second, or refill it now with an optional ad.</p>}
-      <button className="btn ghost" disabled={!canAd} onClick={() => ctx.adFor('energy')}>
-        {ctx.adBusy ? 'Loading ad…' : `Watch an ad to refill energy (${ctx.s.ads.left} left today)`}
+      {/* Yard Header */}
+      <div className="yard-header">
+        <h1 className="yard-title">Packing Yard</h1>
+        <p className="yard-subtitle">
+          Pack 9 boxes to earn coins • Progress through levels to unlock premium crates
+        </p>
+      </div>
+
+      {/* 3x3 Grid of 9 Crates */}
+      <div className="grid-container">
+        {Array.from({ length: 9 }, (_, i) => {
+          const isShaking = shake?.cell === i && Date.now() - shake.id < 400;
+          const isGlinting = glim?.cell === i && Date.now() - glim.id < 800;
+          const isPopping = pop?.cell === i && Date.now() - pop.id < 800;
+
+          return (
+            <button
+              key={i}
+              className={`crate-btn ${isShaking ? 'shake' : ''}`}
+              aria-label={`Box ${i + 1}`}
+              onPointerDown={(e) => {
+                e.preventDefault();
+                tap(i, e);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  tap(i);
+                }
+              }}
+            >
+              <CrateVisual
+                level={currentLevel}
+                isGlinting={isGlinting}
+                isFloating={!isShaking}
+                delayIndex={i}
+              />
+
+              {/* Point rise popup animation */}
+              {isPopping && pop && (
+                <span key={pop.id} className={`pop ${pop.gold ? 'gold' : ''}`}>
+                  +{pop.pts}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Out of energy notice if zero */}
+      {out && (
+        <div className="p-3 mb-3 bg-red-950/40 border-l-4 border-amber-500 rounded text-[13px] text-amber-200">
+          Out of energy. It recharges at {regen} per second, or refill immediately with an optional ad.
+        </div>
+      )}
+
+      {/* Ad Refill Button with Glow Border */}
+      <button
+        className="btn-ad-refill"
+        disabled={!canAd}
+        onClick={() => ctx.adFor('energy')}
+        style={{
+          borderColor: 'var(--level-color, #ffc93c)',
+          boxShadow: '0 0 16px var(--box-glow, rgba(255, 201, 60, 0.35))',
+        }}
+      >
+        <svg className="w-5 h-5 text-amber-400" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M4 6a2 2 0 012-2h12a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm6 3v6l5-3-5-3z" />
+        </svg>
+        <span>
+          {ctx.adBusy
+            ? 'Loading ad…'
+            : `Watch an ad to refill energy (${ctx.s.ads.left} left today)`}
+        </span>
       </button>
-      <p className="small muted center-t">Ads are optional. The game works fully without them. Total earned: {fmt(ctx.s.totalEarned)}</p>
+
+      {/* Disclaimer */}
+      <p className="disclaimer-text">
+        Ads are optional. The game works fully without them. Total earned: {fmt(ctx.s.totalEarned)}
+      </p>
     </section>
   );
 }
