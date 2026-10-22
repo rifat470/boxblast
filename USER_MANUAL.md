@@ -45,3 +45,10 @@ Your account belongs to your Telegram profile. Deleting the app, logging out, or
 
 ## Coins
 Coins are in-game points with no cash value.
+
+## v4 additions
+- Every tap (hit or miss) costs 1 energy. Energy returns by itself: +1 every 5 seconds. An optional ad refills it instantly.
+- Daily reward: an optional ad doubles it.
+- Friends: invite milestones from 1 to 100 friends give bonus coins and rare gems (10 friends: Moonstone, 20: Radiant Onyx, 30: Silver Star, 50: Royal Ruby, 70: Sapphire, 100: Eternal Diamond).
+- Daily ad gems: 5 optional ads in a day give a Sapphire, 10 ads give an Eternal Diamond.
+- Gems are collectibles with no cash value. They are shown in Profile.

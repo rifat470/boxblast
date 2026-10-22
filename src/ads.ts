@@ -1,4 +1,5 @@
 // Adsgram rewarded ads. Only ever started by an explicit tap on a "Watch ad" button.
+// The reward itself is NEVER granted here: the server pays only after Adsgram's own server confirmation.
 const BLOCK_ID: string = String((import.meta as any).env?.VITE_ADSGRAM_BLOCK_ID || '').replace(/\D/g, '');
 let controller: any;
 

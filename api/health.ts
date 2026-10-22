@@ -17,8 +17,8 @@ export default async function handler(_req: any, res: any) {
     if (out.SUPABASE_URL && out.SUPABASE_SERVICE_ROLE_KEY) {
       const a = await db().from('players').select('tg_id', { head: true, count: 'exact' }).limit(1);
       out.players_table = a.error ? `error ${a.error.code || ''}: ${String(a.error.message || '').slice(0, 140)}` : 'ok';
-      const c = await db().from('players').select('skin,total_blasts', { head: true, count: 'exact' }).limit(1);
-      out.migration_v3 = c.error ? 'MISSING - run supabase/schema.sql again' : 'ok';
+      const c = await db().from('players').select('skin,total_blasts,gems', { head: true, count: 'exact' }).limit(1);
+      out.migration_v4 = c.error ? 'MISSING - run supabase/migration_v4.sql in Supabase SQL Editor' : 'ok';
       const b = await db().from('ad_events').select('id', { head: true, count: 'exact' }).limit(1);
       out.ad_events_table = b.error ? `error ${b.error.code || ''}: ${String(b.error.message || '').slice(0, 140)}` : 'ok';
     }

@@ -44,13 +44,14 @@ export type Player = {
   last_sync_at: string;
   skin: string;
   total_blasts: number;
+  gems: Record<string, number>;
   version: number;
 };
 
 const WRITABLE = [
   'first_name', 'username', 'coins', 'total_earned', 'energy', 'energy_updated_at', 'tap_level',
   'energy_level', 'regen_level', 'pph', 'last_collect', 'cards', 'claimed', 'streak', 'last_daily',
-  'ref_count', 'ads_date', 'ads_today', 'last_ad_at', 'last_sync_at', 'skin', 'total_blasts',
+  'ref_count', 'ads_date', 'ads_today', 'last_ad_at', 'last_sync_at', 'skin', 'total_blasts', 'gems',
 ] as const;
 
 export async function getPlayer(id: number): Promise<Player | null> {

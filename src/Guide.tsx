@@ -8,7 +8,7 @@ export default function Guide() {
       <h2>How to play</h2>
       <ol>
         <li><b>Blast.</b> Nine crates hide one box. Tap the crate you think hides it. You get 3 tries per box. A yellow glint hints where the box went, but not every glint tells the truth. A first-try blast gives a bonus and builds a combo.</li>
-        <li><b>Energy.</b> Every blast uses 1 energy. Energy recharges by itself while you play or while you are away.</li>
+        <li><b>Energy.</b> Every blast uses 1 energy. Every tap, hit or miss, costs 1 energy. Energy comes back by itself: +1 every 5 seconds.</li>
         <li><b>Upgrades.</b> Spend coins on Boosts (stronger blasts, bigger energy tank, faster recharge) and on Warehouse upgrades that earn coins every hour, even when the app is closed (up to 3 hours at a time, so come back often).</li>
         <li><b>Levels.</b> Your level grows with the total coins you have earned. Every new level changes the colours of the whole app, unlocks a new box design, adds extra energy and gives a reward you can claim in Profile.</li>
         <li><b>Earn.</b> Claim the daily reward (a streak gives more every day for 7 days), finish tasks and, if you want, watch an optional ad for bonus coins.</li>

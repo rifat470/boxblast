@@ -1,71 +1,130 @@
-# BoxBlast v3 — সেটআপ ও আপডেট গাইড (Vercel + Supabase)
+# BoxBlast v4 — Complete Setup & Architecture Guide
 
-## v3 তে নতুন কী
-- **১০টি লেভেল** (Rookie → Legend): মোট আয় অনুযায়ী লেভেল বাড়ে। খরচ করলে লেভেল কমে না।
-- **লেভেল বাড়লে পুরো এপের কালার/লুক অটো বদলায়** (১০টি আলাদা থিম) + লেভেল-আপ পপআপ ও রিওয়ার্ড।
-- **১০টি বক্স ডিজাইন** (Classic, Ocean, Emerald, Sunset, Royal, Rose, Neon, Lava, Gold, Diamond), প্রতি লেভেলে একটি আনলক।
-- **Profile ট্যাব**: স্ট্যাটাস, বক্স কালেকশন, লেভেল লিস্ট, **How to play** (ইউজার ম্যানুয়াল), **Privacy** (পলিসি)।
-- প্রত্যেক ইউজারের নিজস্ব রেফার লিংক (Friends ট্যাবে বড় করে দেখায়)।
-- `public/privacy.html` — সম্পূর্ণ প্রাইভেসি পলিসি পেজ (`https://আপনার-অ্যাপ.vercel.app/privacy.html`)।
-- ডাটা সুরক্ষা: প্লেয়ার রো ডিলিট করা যায় না, ব্যালেন্স নেগেটিভ হয় না, SQL রি-রান করলেও কিছু মোছে না।
+A production-ready Telegram Mini App game built with React, TypeScript, Tailwind CSS, Vercel Serverless Functions, and Supabase PostgreSQL.
 
-## ডাটা কেন হারাবে না (গুরুত্বপূর্ণ)
-- অ্যাকাউন্টের চাবি = **টেলিগ্রাম ইউজার আইডি**। এপ ডিলিট, লগআউট, নতুন ডিভাইস বা অন্য কারো রেফার লিংকে ঢুকলেও একই অ্যাকাউন্ট ও ব্যালেন্স ফেরত আসে।
-- রেফার কোড শুধু **প্রথমবার** অ্যাকাউন্ট তৈরির সময় পড়া হয়। পুরোনো ইউজারের ক্ষেত্রে উপেক্ষা করা হয়।
-- সব ডাটা Supabase এ থাকে, ব্রাউজারে না। আপডেট দিলে শুধু কোড বদলায়, ডাটাবেস রো বদলায় না।
+---
 
-## ১. পুরোনো ইউজারসহ আপডেট করার সঠিক ক্রম (এই ক্রম মানুন)
-1. **আগে Supabase**: SQL Editor → New query → `supabase/schema.sql` পুরোটা পেস্ট → **Run**।
-   এটা বারবার চালানো নিরাপদ; শুধু নতুন কলাম (`skin`, `total_blasts`) যোগ করে, কোনো ডাটা মোছে না।
-   (ঐচ্ছিক কিন্তু ভালো: Supabase → Database → Backups থেকে আগে একটা ব্যাকআপ নিন।)
-2. **তারপর কোড**: নতুন ফাইলগুলো GitHub এ পুশ করুন, Vercel অটো ডিপ্লয় করবে।
-3. `https://আপনার-অ্যাপ.vercel.app/api/health` খুলুন। সব `true`/`ok` এবং `migration_v3: "ok"` হলে সব ঠিক।
+## What's New in v4
 
-> ক্রম উল্টো করলে (আগে কোড, পরে SQL) এপ কিছুক্ষণ error দেখাবে, কিন্তু ডাটা নষ্ট হবে না।
+1. **Server-Authoritative Game Logic**: All energy replenishment, coin calculations, boosts, level progression, and task completions are strictly validated server-side.
+2. **Real Rewarded Ads (Adsgram)**: Adsgram shows the rewarded video, and our secure backend webhook (`/api/ad-reward`) verifies completion before crediting energy, coins, or gems.
+3. **10 Progression Tiers & Box Designs**: Levels are derived directly from `total_earned` coins (Rookie, Novice, Adept, Skilled, Elite, Veteran, Master, Champion, Legend, Boss). Levels never decrease when spending coins.
+4. **Referral Ladder (1 to 100 Friends)**: Milestone rewards from 1 to 100 friends with coin bonuses and 6 collectible gems (Moonstone, Radiant Onyx, Silver Star, Royal Ruby, Sapphire, Eternal Diamond).
+5. **Daily Streak Rewards with Optional 2x Multiplier**: Players can claim their consecutive daily reward, with the option to watch an ad to double it.
+6. **Energy System**: 1 tap costs 1 energy (hit or miss). Energy regenerates continuously (+1 every 5s base, upgradable). Instant refill via optional rewarded ad (up to 10 per day).
+7. **Telegram Bot Webhook (`api/bot.ts`)**: Handles `/start` commands and referral invite links (`startapp=ref_ID`).
+8. **Responsive UI & Overlap-Free Profile**: 3 dedicated sub-tabs inside Profile: *My Profile*, *How to Play*, and *Privacy Policy*.
+9. **Zero Data Loss Guarantee**: Player accounts are tied to Telegram numeric User IDs. Updating code or running SQL migrations never deletes or resets player progress.
 
-## ২. প্রথমবার সেটআপ
-### Supabase
-1. supabase.com এ নতুন প্রজেক্ট খুলুন।
-2. `supabase/schema.sql` রান করুন।
-3. **Settings → API** থেকে `Project URL` ও `service_role` key নিন (service_role কাউকে দেবেন না)।
+---
 
-### GitHub
+## Database Migration (Supabase)
+
+### If updating an existing database:
+1. Open your Supabase Dashboard: **SQL Editor** -> **New query**.
+2. Copy and paste the contents of `supabase/migration_v4.sql`.
+3. Click **Run**.
+*(This migration is safe and idempotent: it adds the `gems` and `total_blasts` columns and creates the `ad_events` table without modifying existing player rows.)*
+
+### If setting up from scratch:
+1. Create a new project at [supabase.com](https://supabase.com).
+2. Go to **SQL Editor** -> **New query**.
+3. Copy and paste the full `supabase/schema.sql`.
+4. Click **Run**.
+5. Go to **Project Settings** -> **API** and copy your `Project URL` and `service_role` secret key.
+
+---
+
+## Deployment Guide
+
+### 1. GitHub
 ```bash
 git init
 git add .
-git commit -m "BoxBlast v3"
+git commit -m "BoxBlast v4 - 100% English release"
 git branch -M main
-git remote add origin https://github.com/<ইউজারনেম>/<রিপো>.git
+git remote add origin https://github.com/<YOUR_USERNAME>/<YOUR_REPO>.git
 git push -u origin main
 ```
 
-### Vercel
-1. **Add New → Project** → রিপো ইমপোর্ট (Framework: Vite)।
-2. **Environment Variables** এ `.env.example` এর সব ভেরিয়েবল বসান।
-3. Deploy।
+### 2. Vercel
+1. In Vercel, click **Add New** -> **Project** and import your repository (Framework: **Vite**).
+2. In **Environment Variables**, configure the variables from `.env.example`:
+   - `SUPABASE_URL`: Your Supabase Project URL.
+   - `SUPABASE_SERVICE_ROLE_KEY`: Your Supabase `service_role` secret key.
+   - `BOT_TOKEN`: Your Telegram bot token from @BotFather.
+   - `AD_REWARD_SECRET`: A secure random secret string (e.g. generated via `openssl rand -hex 16`).
+   - `VITE_ADSGRAM_BLOCK_ID`: Your Adsgram reward block ID (numeric digits only).
+   - `VITE_BOT_LINK`: `https://t.me/<YourBotUsername>`
+   - `VITE_APP_LINK`: `https://t.me/<YourBotUsername>/<YourShortAppName>` (from BotFather `/myapps`).
+   - `VITE_CONTACT`: Support username or email.
+   - `WEBHOOK_SECRET`: (Optional) Secret token for Telegram bot webhook.
+3. Click **Deploy**.
 
-### BotFather
-- `/myapps` → Web App URL = আপনার Vercel লিংক।
-- Direct link (`https://t.me/BOT/app`) পেলে `VITE_APP_LINK` এ বসান। এটা দিলেই প্রতিটি ইউজারের লিংক হবে `https://t.me/BOT/app?startapp=ref_<তার আইডি>`।
-- চ্যানেল টাস্ক চাইলে: চ্যানেল বানান, বটকে admin করুন, `CHANNEL_USERNAME` বসান।
+### 3. Telegram Bot Setup (@BotFather)
+1. Message `@BotFather` on Telegram.
+2. Use `/myapps` -> Select your Mini App -> **Edit Web App URL** -> set it to your Vercel deployment URL (e.g. `https://your-app.vercel.app`).
+3. Set your Bot description and menu button to point to your Mini App.
+4. (Optional) Set Telegram bot webhook for referral deep linking:
+   ```
+   https://api.telegram.org/bot<BOT_TOKEN>/setWebhook?url=https://your-app.vercel.app/api/bot&secret_token=<WEBHOOK_SECRET>
+   ```
 
-## ৩. প্রাইভেসি পলিসি
-- `public/privacy.html` ফাইলের একদম নিচে `[YOUR_CONTACT_EMAIL_OR_TELEGRAM_USERNAME]` এর জায়গায় আপনার আসল যোগাযোগ বসান (ইমেইল বা টেলিগ্রাম)।
-- লিংকটা Adsgram ফর্মে ও বটের About/Description এ দিতে পারেন।
+### 4. Adsgram Monetization Setup (partner.adsgram.ai)
+1. In your Adsgram dashboard, create a **Reward** block type.
+2. Set the **Reward URL** to:
+   ```
+   https://your-app.vercel.app/api/ad-reward?userid=[userId]&secret=<YOUR_AD_REWARD_SECRET>
+   ```
+3. Set `VITE_ADSGRAM_BLOCK_ID` in your Vercel Environment Variables to your numeric block ID and redeploy.
 
-## ৪. Adsgram (partner.adsgram.ai)
-1. `docs/adsgram-resubmit.md` এর বার্তা সাপোর্টে পাঠান (আপনার URL বসিয়ে)। আগের প্ল্যাটফর্ম (ID 52207) রিভিউ না নিলে নতুন ডিপ্লয় URL দিয়ে নতুন প্ল্যাটফর্ম যোগ করুন।
-2. অনুমোদনের পর **Reward** টাইপ ব্লক বানান।
-   - **Reward URL**: `https://আপনার-অ্যাপ.vercel.app/api/ad-reward?userid=[userId]&secret=আপনার_AD_REWARD_SECRET`
-   - ব্লক ID শুধু সংখ্যা (`int-` দিয়ে শুরু হলে সেটা Interstitial)।
-3. ব্লক ID `VITE_ADSGRAM_BLOCK_ID` এ বসিয়ে Redeploy করুন।
+---
 
-## ৫. ভবিষ্যতে আবার আপডেট দিলে
-- নতুন কোড পুশ করুন। যদি `supabase/schema.sql` বদলে থাকে, আগে সেটা Supabase এ রান করুন (নিরাপদ)।
-- কখনো `drop table`, `truncate` বা `delete from players` চালাবেন না।
+## Health Check Endpoint
+After deployment, visit:
+```
+https://your-app.vercel.app/api/health
+```
+This endpoint checks your environment variables and Supabase connection, confirming `migration_v4: "ok"` and `players_table: "ok"`.
 
-## ফাইল কাঠামো
-- `src/` — ফ্রন্টএন্ড (React)। `theme.ts` এ লেভেল থিম ও বক্স ডিজাইনের রং।
-- `api/` — সার্ভার (Vercel functions)। `api/_lib/config.ts` এ লেভেল, রিওয়ার্ড, ইকোনমি।
-- `supabase/schema.sql` — ডাটাবেস।
-- `USER_MANUAL.md` — ইউজার ম্যানুয়াল (ইংরেজি, এপের Guide এর অনুরূপ)।
+---
+
+## Project Structure
+
+```
+├── api/
+│   ├── _lib/
+│   │   ├── auth.ts          # Telegram initData cryptographic validation
+│   │   ├── config.ts        # Economy, levels, boosts, gems, tasks configuration
+│   │   ├── db.ts            # Supabase database helpers with optimistic locking
+│   │   └── game.ts          # Core game actions (blast, boosts, upgrades, claims)
+│   ├── ad-reward.ts         # Secure Adsgram server-to-server reward callback
+│   ├── bot.ts               # Optional Telegram bot webhook for /start referrals
+│   ├── game.ts              # Primary API router handling state mutations & sync
+│   └── health.ts            # System diagnostic and configuration verification
+├── public/
+│   └── privacy.html         # Full legal privacy policy page
+├── src/
+│   ├── App.tsx              # Main application root, audio, overlays, navigation
+│   ├── CrateVisual.tsx      # High-performance 3D visual renderer for 10 crate tiers
+│   ├── Earn.tsx             # Daily check-in, optional rewarded ads, task board
+│   ├── Friends.tsx          # Referral ladder (1-100), sharing tools, leaderboard
+│   ├── GemIcon.tsx          # SVG gem asset renderer for 6 collectible gem tiers
+│   ├── Guide.tsx            # In-app gameplay manual and summary privacy notice
+│   ├── Mine.tsx             # Passive warehouse income cards and active boosts
+│   ├── ParticleBackground.tsx # GPU-accelerated canvas background ambience
+│   ├── Play.tsx             # Packing Yard 3x3 interactive blast crate game
+│   ├── Profile.tsx          # My Profile, How to Play, and Privacy Policy sub-tabs
+│   ├── ads.ts               # Adsgram SDK client integration with retry resilience
+│   ├── api.ts               # Client-side API caller and Telegram WebApp hooks
+│   ├── effects.ts           # Synthesized Web Audio effects and confetti particle engine
+│   ├── index.css            # Responsive layout and tier-based glowing animations
+│   ├── main.tsx             # Application mount point
+│   └── theme.ts             # Level palettes, gradient definitions, and design tokens
+├── supabase/
+│   ├── migration_v4.sql     # Safe idempotent SQL migration for v4
+│   └── schema.sql           # Complete standalone PostgreSQL schema
+├── USER_MANUAL.md           # In-depth user manual and gameplay mechanics
+├── README_BN.md             # বাংলা সংস্করণ (Bengali setup documentation)
+└── README.md                # English setup documentation
+```

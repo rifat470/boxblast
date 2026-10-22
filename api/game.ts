@@ -2,7 +2,7 @@ import { verifyInitData } from './_lib/auth.js';
 import { db, getPlayer, HttpError, mutate, type Player } from './_lib/db.js';
 import { AD, REF, TASKS, levelOf } from './_lib/config.js';
 import {
-  blast, buyBoost, buyCard, checkAdAllowed, claimDaily, claimLevel, claimTask, grantAd, newPlayer, setSkin, settle, view,
+  blast, buyBoost, buyCard, checkAdAllowed, claimDaily, claimLevel, claimRef, claimTask, grantAd, newPlayer, setSkin, settle, view,
 } from './_lib/game.js';
 
 const bad = (m: string) => new HttpError(400, m);
@@ -16,6 +16,29 @@ async function isChannelMember(userId: number) {
   );
   const j: any = await r.json().catch(() => ({}));
   return j?.ok && ['member', 'administrator', 'creator'].includes(j.result?.status);
+}
+
+// Adsgram calls /api/ad-reward after a completed ad; one confirmation = one reward. Returns false if none found.
+async function consumeAdConfirmation(id: number, now: number) {
+  if (process.env.AD_SERVER_CONFIRM === 'false') return true;
+  const since = new Date(now - AD.confirmWindowS * 1000).toISOString();
+  const { data } = await db()
+    .from('ad_events')
+    .select('id')
+    .eq('tg_id', id)
+    .eq('claimed', false)
+    .gte('created_at', since)
+    .order('id', { ascending: true })
+    .limit(1);
+  const ev = data?.[0];
+  if (!ev) return false;
+  const { data: upd } = await db()
+    .from('ad_events')
+    .update({ claimed: true })
+    .eq('id', ev.id)
+    .eq('claimed', false)
+    .select('id');
+  return !!upd?.length;
 }
 
 async function init(auth: { user: any; startParam: string }, now: number) {
@@ -72,7 +95,9 @@ async function route(auth: { user: any; startParam: string }, body: any) {
     case 'init':
       return init(auth, now);
     case 'sync': {
-      const list = Array.isArray(body.blasts) ? body.blasts.slice(0, 60) : [];
+      const list = Array.isArray(body.blasts)
+        ? body.blasts.slice(0, 80).map((b: any) => ({ hit: !!b?.hit, perfect: !!b?.perfect }))
+        : [];
       return act((s) => blast(s, list, now));
     }
     case 'buyCard':
@@ -83,8 +108,19 @@ async function route(auth: { user: any; startParam: string }, body: any) {
       return act((s) => claimLevel(s, Number(body.lvl), now));
     case 'setSkin':
       return act((s) => setSkin(s, String(body.id)));
-    case 'claimDaily':
-      return act((s) => claimDaily(s, now));
+    case 'claimDaily': {
+      if (!body.double) return act((s) => claimDaily(s, now, false));
+      // Optional "double reward" needs one confirmed ad. The ad is only used up if the daily reward can really be claimed.
+      const cur = await getPlayer(id);
+      if (!cur) throw new HttpError(404, 'Player not found');
+      const st = settle(cur, now);
+      if (st.last_daily === new Date(now).toISOString().slice(0, 10)) throw new HttpError(409, 'Already claimed today');
+      checkAdAllowed(st, now);
+      if (!(await consumeAdConfirmation(id, now))) throw new HttpError(409, 'ad_not_confirmed');
+      return act((s) => claimDaily(s, now, true));
+    }
+    case 'claimRef':
+      return act((s) => claimRef(s, String(body.id), now));
     case 'claimTask': {
       const t = TASKS.find((x) => x.id === body.id);
       if (!t) throw bad('Unknown task');
@@ -97,27 +133,7 @@ async function route(auth: { user: any; startParam: string }, body: any) {
       const cur = await getPlayer(id);
       if (!cur) throw new HttpError(404, 'Player not found');
       checkAdAllowed(settle(cur, now), now);
-      if (process.env.AD_SERVER_CONFIRM !== 'false') {
-        // Adsgram calls /api/ad-reward after a completed ad; one confirmation = one reward.
-        const since = new Date(now - AD.confirmWindowS * 1000).toISOString();
-        const { data } = await db()
-          .from('ad_events')
-          .select('id')
-          .eq('tg_id', id)
-          .eq('claimed', false)
-          .gte('created_at', since)
-          .order('id', { ascending: true })
-          .limit(1);
-        const ev = data?.[0];
-        if (!ev) throw new HttpError(409, 'ad_not_confirmed');
-        const { data: upd } = await db()
-          .from('ad_events')
-          .update({ claimed: true })
-          .eq('id', ev.id)
-          .eq('claimed', false)
-          .select('id');
-        if (!upd?.length) throw new HttpError(409, 'ad_not_confirmed');
-      }
+      if (!(await consumeAdConfirmation(id, now))) throw new HttpError(409, 'ad_not_confirmed');
       return act((s) => grantAd(s, kind, now));
     }
     case 'leaderboard': {

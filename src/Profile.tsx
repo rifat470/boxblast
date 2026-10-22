@@ -3,6 +3,7 @@ import { fmt } from './api';
 import type { Ctx } from './App';
 import { LEVELS_CONFIG, getLevelConfig } from './theme';
 import { IconLock, IconBlast, IconBolt, IconUp, IconFriends } from './icons';
+import GemIcon from './GemIcon';
 
 type ProfileSubTab = 'profile' | 'howto' | 'privacy';
 
@@ -21,7 +22,7 @@ export default function Profile({ ctx }: ProfileProps) {
 
   const equip = async (id: string) => {
     const r = await act('setSkin', { id });
-    if (r) flash(`Box design set to ${id.toUpperCase()}`);
+    if (r) flash('Box design changed');
   };
 
   // Safe level progress calculation
@@ -150,6 +151,28 @@ export default function Profile({ ctx }: ProfileProps) {
             </div>
           </div>
 
+          {/* Gem Collection */}
+          <div className="bg-[#151b27] border border-white/10 rounded-2xl p-4 shadow-lg flex flex-col gap-3">
+            <div className="flex justify-between items-center">
+              <h3 className="text-base font-extrabold text-white m-0">Gem Collection</h3>
+              <span className="text-xs font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
+                {s.gems.reduce((a, g) => a + g.count, 0)} gems
+              </span>
+            </div>
+            <div className="grid grid-cols-3 gap-2.5">
+              {s.gems.map((g) => (
+                <div key={g.id} className={'gem-slot' + (g.count > 0 ? ' own' : '')}>
+                  <GemIcon id={g.id} size={46} dim={g.count === 0} />
+                  <b>{g.name}</b>
+                  <small>{g.count > 0 ? `x${g.count}` : 'Not yet'}</small>
+                </div>
+              ))}
+            </div>
+            <p className="text-[11px] text-slate-400 m-0 leading-relaxed">
+              Earn gems by inviting friends (Friends tab) and by watching optional ads (Earn tab). Gems are collectibles and have no cash value.
+            </p>
+          </div>
+
           {/* Friends Invited Section */}
           <div className="bg-[#151b27] border border-white/10 rounded-2xl p-4 shadow-lg flex flex-col gap-3">
             <div className="flex justify-between items-center">
@@ -172,19 +195,8 @@ export default function Profile({ ctx }: ProfileProps) {
                 </p>
               </div>
             ) : (
-              <div className="flex flex-col gap-2">
-                <div className="bg-[#18202d] border border-white/5 rounded-xl p-3 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-full bg-amber-400/20 text-amber-300 font-bold flex items-center justify-center text-sm">
-                      F1
-                    </div>
-                    <div>
-                      <div className="text-xs font-bold text-white">Friend #1</div>
-                      <div className="text-[11px] text-slate-400">Joined via your link</div>
-                    </div>
-                  </div>
-                  <div className="text-xs font-black text-amber-400">+2,500 coins</div>
-                </div>
+              <div className="bg-[#18202d] border border-white/5 rounded-xl p-3 text-xs text-slate-300 leading-relaxed">
+                {s.refCount} friend{s.refCount === 1 ? '' : 's'} joined with your link. Open the Friends tab to claim invite rewards and gems.
               </div>
             )}
           </div>
@@ -201,18 +213,16 @@ export default function Profile({ ctx }: ProfileProps) {
             {/* Grid 5 columns on desktop, 3 columns on mobile, gap-4 */}
             <div className="grid grid-cols-3 md:grid-cols-5 gap-3 sm:gap-4 pt-1">
               {LEVELS_CONFIG.map((cfg) => {
-                const skinData = s.skins?.find(
-                  (sk) => sk.id === cfg.name.toLowerCase() || sk.level === cfg.lvl
-                );
-                const isUnlocked = Boolean(skinData ? skinData.unlocked : s.level.lvl >= cfg.lvl);
-                const isEquipped = s.skin === cfg.name.toLowerCase() || (s.level.lvl === cfg.lvl && !s.skin);
+                const skinData = s.skins.find((sk) => sk.level === cfg.lvl);
+                const isUnlocked = Boolean(skinData?.unlocked);
+                const isEquipped = s.skin === `lv${cfg.lvl}`;
 
                 return (
                   <button
                     key={cfg.lvl}
                     type="button"
                     disabled={!isUnlocked}
-                    onClick={() => isUnlocked && equip(cfg.name.toLowerCase())}
+                    onClick={() => isUnlocked && equip(`lv${cfg.lvl}`)}
                     className={`flex flex-col items-center justify-between p-3 rounded-xl border text-center transition-all min-h-[118px] relative ${
                       isEquipped
                         ? 'border-amber-400 bg-amber-500/15 shadow-[0_0_12px_rgba(245,158,11,0.35)] scale-102 ring-1 ring-amber-400/50'
@@ -346,7 +356,7 @@ export default function Profile({ ctx }: ProfileProps) {
                     <span className="text-amber-400">Step 1:</span> Find & Blast Crates
                   </div>
                   <p className="text-xs text-slate-300 mt-1 mb-0 leading-relaxed">
-                    Nine crates hide one target box. Tap the crate you think hides it! You get 3 attempts per box. A yellow glint hints where the box went, but beware — not every glint is honest! Blasting on the first try earns combo multipliers.
+                    Nine crates hide one target box. Tap the crate you think hides it! You get 3 attempts per box. A yellow glint hints where the box went, but not every glint is honest. Blasting on the first try earns a bonus and builds a combo.
                   </p>
                 </div>
               </div>
@@ -361,7 +371,7 @@ export default function Profile({ ctx }: ProfileProps) {
                     <span className="text-amber-400">Step 2:</span> Manage Energy
                   </div>
                   <p className="text-xs text-slate-300 mt-1 mb-0 leading-relaxed">
-                    Every blast costs 1 energy point. Your energy automatically recharges continuously while you play or while away. You can also watch optional quick ads to instantly refill your tank (up to 10 daily).
+                    Every tap (hit or miss) costs 1 energy. Energy comes back by itself: +1 every 5 seconds. You can also watch an optional ad to refill your tank instantly (up to 10 ads per day).
                   </p>
                 </div>
               </div>
@@ -391,7 +401,7 @@ export default function Profile({ ctx }: ProfileProps) {
                     <span className="text-amber-400">Step 4:</span> Level Up (Rookie to Boss)
                   </div>
                   <p className="text-xs text-slate-300 mt-1 mb-0 leading-relaxed">
-                    Accumulate total lifetime coins to rank up through 10 distinct tiers: Rookie, Novice, Adept, Skilled, Elite, Veteran, Master, Champion, Legend, and Boss. Each tier transforms your game theme, particle effects, and unlocks exclusive box skins!
+                    Your level depends only on the total coins you have earned. Nothing else can raise it. There are 10 tiers: Rookie, Novice, Adept, Skilled, Elite, Veteran, Master, Champion, Legend and Boss. Each tier changes the look of the game and unlocks a new box design.
                   </p>
                 </div>
               </div>
@@ -406,7 +416,7 @@ export default function Profile({ ctx }: ProfileProps) {
                     <span className="text-amber-400">Step 5:</span> Invites & Daily Streaks
                   </div>
                   <p className="text-xs text-slate-300 mt-1 mb-0 leading-relaxed">
-                    Check in every 24 hours to collect consecutive daily streak bonuses. Invite your friends from Telegram to receive massive instant bounties for both players.
+                    Claim your daily reward every day for a growing streak. An optional ad doubles it. Invite friends with your personal link: you both get coins, and invite milestones from 1 to 100 friends give bonus coins and rare gems. Watching 5 optional ads in a day gives a Sapphire, 10 ads give an Eternal Diamond.
                   </p>
                 </div>
               </div>
@@ -416,7 +426,7 @@ export default function Profile({ ctx }: ProfileProps) {
             <div className="bg-[#18202d]/60 border border-white/5 rounded-xl p-3.5">
               <div className="text-xs font-bold text-amber-400">Fair Play & Coin Disclaimer</div>
               <p className="text-xs text-slate-400 mt-1 mb-0 leading-relaxed">
-                All coins in BoxBlast are virtual gaming points designed for entertainment and yard upgrades. They carry no real-world financial or cryptocurrency cash value.
+                All coins and gems in BoxBlast are virtual in-game items for entertainment. They have no cash or cryptocurrency value and cannot be withdrawn.
               </p>
             </div>
           </div>
@@ -459,7 +469,7 @@ export default function Profile({ ctx }: ProfileProps) {
               <div className="bg-[#18202d] border border-white/5 rounded-xl p-3.5 flex flex-col gap-1.5">
                 <b className="text-white text-sm font-bold">4. Optional Advertising</b>
                 <p className="m-0 text-slate-300">
-                  Ads in BoxBlast are completely optional. When you choose to tap an ad button to refill energy or earn coins, third-party ad networks (like Adsgram) receive non-identifying telemetry to confirm ad view completion.
+                  Ads in BoxBlast are completely optional. When you choose to tap an ad button to refill energy or earn coins, our ad partner Adsgram receives your Telegram user ID to show the ad and confirm that it was watched.
                 </p>
               </div>
 

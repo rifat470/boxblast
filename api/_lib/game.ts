@@ -1,7 +1,7 @@
 import { randomInt } from 'node:crypto';
 import {
-  AD, BOOSTS, BOOST_MAX, CARDS, CARD_MAX, DAILY, ENERGY_BASE, ENERGY_STEP, MAX_OFFLINE_S,
-  MAX_TAPS_PER_S, REGEN_BASE, REGEN_STEP, TASKS, boostCost, cardCost, type BoostKind,
+  AD, AD_GEMS, BOOSTS, BOOST_MAX, CARDS, CARD_MAX, DAILY, ENERGY_BASE, ENERGY_STEP, GEMS, MAX_OFFLINE_S,
+  MAX_TAPS_PER_S, REGEN_EVERY_S, REF_STEPS, TASKS, boostCost, cardCost, type BoostKind,
   LEVELS, LEVEL_ENERGY, REF, SKINS, levelOf,
 } from './config.js';
 import { HttpError, type Player } from './db.js';
@@ -11,7 +11,8 @@ export const day = (ms: number) => iso(ms).slice(0, 10);
 
 export const maxEnergy = (p: Player) =>
   ENERGY_BASE + (p.energy_level - 1) * ENERGY_STEP + (levelOf(p.total_earned).lvl - 1) * LEVEL_ENERGY;
-export const regenRate = (p: Player) => REGEN_BASE + (p.regen_level - 1) * REGEN_STEP;
+// Energy that comes back every REGEN_EVERY_S seconds (grows with the Recharge speed boost).
+export const regenPerTick = (p: Player) => p.regen_level;
 
 export function newPlayer(user: { id: number; first_name?: string; username?: string }, now: number) {
   return {
@@ -27,21 +28,19 @@ export function newPlayer(user: { id: number; first_name?: string; username?: st
   };
 }
 
-// Brings energy regen and passive (offline) income up to date.
+// Brings energy regen (one step every 5 s) and passive (offline) income up to date.
 export function settle(p: Player, now: number): Player {
-  const q = { ...p };
+  const q = { ...p, gems: { ...(p.gems || {}) } };
   const max = maxEnergy(q);
-  const rate = regenRate(q);
-  const dt = Math.max(0, (now - Date.parse(q.energy_updated_at)) / 1000);
+  const stepMs = REGEN_EVERY_S * 1000;
   if (q.energy >= max) {
     q.energy = max;
     q.energy_updated_at = iso(now);
   } else {
-    const add = Math.floor(dt * rate);
-    if (add > 0) {
-      q.energy = Math.min(max, q.energy + add);
-      const leftoverMs = ((dt * rate - add) / rate) * 1000;
-      q.energy_updated_at = iso(q.energy >= max ? now : now - leftoverMs);
+    const ticks = Math.floor(Math.max(0, now - Date.parse(q.energy_updated_at)) / stepMs);
+    if (ticks > 0) {
+      q.energy = Math.min(max, q.energy + ticks * regenPerTick(q));
+      q.energy_updated_at = iso(q.energy >= max ? now : Date.parse(q.energy_updated_at) + ticks * stepMs);
     }
   }
   const dtc = Math.max(0, (now - Date.parse(q.last_collect)) / 1000);
@@ -59,21 +58,33 @@ const earn = (p: Player, n: number) => {
   p.total_earned += n;
 };
 
-export function blast(p: Player, list: { perfect?: boolean }[], now: number) {
+const addGem = (p: Player, id: string, n = 1) => {
+  if (!GEMS.some((g) => g.id === id)) return;
+  p.gems = { ...(p.gems || {}), [id]: ((p.gems || {})[id] || 0) + n };
+};
+
+// EVERY tap costs 1 energy (hit or miss). Only hits earn coins. The server decides the coin amount.
+export function blast(p: Player, list: { hit?: boolean; perfect?: boolean }[], now: number) {
   const elapsed = Math.min(30, Math.max(0, (now - Date.parse(p.last_sync_at)) / 1000));
-  const rateCap = Math.floor(elapsed * MAX_TAPS_PER_S) + 8;
+  const rateCap = Math.floor(elapsed * MAX_TAPS_PER_S) + 12;
   const n = Math.min(list.length, p.energy, rateCap);
+  const taps = list.slice(0, n);
+  // A player cannot hit more often than is humanly plausible in a 9-crate game.
+  const hitCap = Math.floor(n * 0.7) + 2;
+  let hits = 0;
   let gain = 0;
-  for (let i = 0; i < n; i++) {
-    const gold = randomInt(100) < 12;
+  for (const t of taps) {
+    if (!t.hit || hits >= hitCap) continue;
+    hits++;
+    const gold = randomInt(100) < 15;
     const base = gold ? 15 : 1 + randomInt(9);
-    gain += base + (list[i]?.perfect ? 2 : 0) + (p.tap_level - 1) * 2;
+    gain += base + (t.perfect ? 2 : 0) + (p.tap_level - 1) * 2;
   }
   p.energy -= n;
-  p.total_blasts = (p.total_blasts || 0) + n;
+  p.total_blasts = (p.total_blasts || 0) + hits;
   earn(p, gain);
   p.last_sync_at = iso(now);
-  return { player: p, result: { counted: n, gained: gain } };
+  return { player: p, result: { taps: n, hits, gained: gain } };
 }
 
 export function buyCard(p: Player, id: string) {
@@ -103,26 +114,54 @@ export function buyBoost(p: Player, kind: string) {
   return { player: p };
 }
 
-export function claimDaily(p: Player, now: number) {
+export function dailyInfo(p: Player, now: number) {
+  const today = day(now);
+  const claimedToday = p.last_daily === today;
+  const alive = claimedToday || p.last_daily === day(now - 86400000);
+  const eff = alive ? p.streak : 0;
+  return { claimedToday, eff, next: DAILY[(claimedToday ? eff : eff) % 7] };
+}
+
+export function claimDaily(p: Player, now: number, double = false) {
   const today = day(now);
   if (p.last_daily === today) throw new HttpError(409, 'Already claimed today');
   const prev = p.last_daily === day(now - 86400000) ? p.streak : 0;
-  const reward = DAILY[prev % 7];
+  const base = DAILY[prev % 7];
+  const reward = double ? base * 2 : base;
   p.streak = prev + 1;
   p.last_daily = today;
   earn(p, reward);
-  return { player: p, result: { reward } };
+  const gem = double ? registerAd(p, now) : null;
+  return { player: p, result: { reward, doubled: double, gem } };
 }
 
 export function claimTask(p: Player, id: string, now: number) {
   const t = TASKS.find((x) => x.id === id);
   if (!t) throw new HttpError(400, 'Unknown task');
   if (p.claimed[id]) throw new HttpError(409, 'Already claimed');
-  if (t.kind === 'refs' && p.ref_count < t.target) throw new HttpError(409, 'Not completed yet');
-  if (t.kind === 'earn' && p.total_earned < t.target) throw new HttpError(409, 'Not completed yet');
+  if (taskProgress(p, t.kind) < t.target) throw new HttpError(409, 'Not completed yet');
   p.claimed = { ...p.claimed, [id]: now };
   earn(p, t.reward);
   return { player: p, result: { reward: t.reward } };
+}
+
+function taskProgress(p: Player, kind: string) {
+  if (kind === 'earn') return p.total_earned;
+  if (kind === 'blasts') return p.total_blasts || 0;
+  if (kind === 'level') return levelOf(p.total_earned).lvl;
+  return 0;
+}
+
+// Referral ladder: coins + gem are credited to the account the moment the player claims a step.
+export function claimRef(p: Player, id: string, now: number) {
+  const st = REF_STEPS.find((x) => x.id === id);
+  if (!st) throw new HttpError(400, 'Unknown referral reward');
+  if (p.claimed[id]) throw new HttpError(409, 'Already claimed');
+  if (p.ref_count < st.at) throw new HttpError(409, `Invite ${st.at} friends to unlock this`);
+  p.claimed = { ...p.claimed, [id]: now };
+  earn(p, st.coins);
+  if (st.gem) addGem(p, st.gem);
+  return { player: p, result: { reward: st.coins, gem: st.gem } };
 }
 
 export function claimLevel(p: Player, lvl: number, now: number) {
@@ -157,15 +196,23 @@ export function checkAdAllowed(p: Player, now: number) {
   if (now < l.nextAt) throw new HttpError(409, 'Please wait a moment before the next ad.');
 }
 
-export function grantAd(p: Player, kind: string, now: number) {
-  checkAdAllowed(p, now);
+// Counts one watched ad for today and pays the daily ad gem when a milestone (5 / 10 ads) is reached.
+function registerAd(p: Player, now: number): string | null {
   const l = adLimits(p, now);
   p.ads_date = day(now);
   p.ads_today = l.used + 1;
   p.last_ad_at = iso(now);
+  const gem = AD_GEMS[p.ads_today] || null;
+  if (gem) addGem(p, gem);
+  return gem;
+}
+
+export function grantAd(p: Player, kind: string, now: number) {
+  checkAdAllowed(p, now);
+  const gem = registerAd(p, now);
   if (kind === 'energy') p.energy = maxEnergy(p);
   else earn(p, AD.reward);
-  return { player: p };
+  return { player: p, result: { gem, kind } };
 }
 
 export function taskList(p: Player, channelUrl: string | null) {
@@ -175,47 +222,42 @@ export function taskList(p: Player, channelUrl: string | null) {
     reward: t.reward,
     kind: t.kind,
     target: t.target,
-    progress: t.kind === 'refs' ? p.ref_count : t.kind === 'earn' ? p.total_earned : 0,
+    progress: t.kind === 'channel' ? 0 : taskProgress(p, t.kind),
     claimed: !!p.claimed[t.id],
     url: t.kind === 'channel' ? channelUrl : null,
   }));
 }
 
 export function view(p: Player, now: number) {
-  const today = day(now);
-  const claimedToday = p.last_daily === today;
-  const alive = claimedToday || p.last_daily === day(now - 86400000);
-  const eff = alive ? p.streak : 0;
+  const dl = dailyInfo(p, now);
   const ch = (process.env.CHANNEL_USERNAME || '').replace('@', '');
   const l = adLimits(p, now);
   const lvlOf = (k: BoostKind) => (k === 'tap' ? p.tap_level : k === 'energy' ? p.energy_level : p.regen_level);
   const cur = levelOf(p.total_earned);
   const nxt = LEVELS.find((x) => x.lvl === cur.lvl + 1) || null;
+  const skinOk = SKINS.some((x) => x.id === p.skin && x.level <= cur.lvl);
+  const gems = p.gems || {};
   return {
     id: p.tg_id,
     name: p.first_name,
     level: { lvl: cur.lvl, name: cur.name, at: cur.at, next: nxt ? { lvl: nxt.lvl, name: nxt.name, at: nxt.at } : null },
-    levels: LEVELS.map((l) => ({
-      lvl: l.lvl, name: l.name, at: l.at, reward: l.reward,
-      reached: cur.lvl >= l.lvl, claimed: l.lvl < 2 || !!p.claimed[`lvl_${l.lvl}`],
+    levels: LEVELS.map((x) => ({
+      lvl: x.lvl, name: x.name, at: x.at, reward: x.reward,
+      reached: cur.lvl >= x.lvl, claimed: x.lvl < 2 || !!p.claimed[`lvl_${x.lvl}`],
     })),
-    skin: SKINS.some((x) => x.id === p.skin && x.level <= cur.lvl) ? p.skin : 'classic',
+    skin: skinOk ? p.skin : `lv${cur.lvl}`,
     skins: SKINS.map((x) => ({ id: x.id, name: x.name, level: x.level, unlocked: cur.lvl >= x.level })),
     totalBlasts: p.total_blasts || 0,
     coins: p.coins,
     totalEarned: p.total_earned,
     energy: p.energy,
     maxEnergy: maxEnergy(p),
-    regen: regenRate(p),
+    regenEveryS: REGEN_EVERY_S,
+    regenPerTick: regenPerTick(p),
     pph: p.pph,
     tapLevel: p.tap_level,
     boosts: (Object.keys(BOOSTS) as BoostKind[]).map((k) => ({
-      id: k,
-      name: BOOSTS[k].name,
-      desc: BOOSTS[k].desc,
-      level: lvlOf(k),
-      cost: boostCost(k, lvlOf(k)),
-      max: BOOST_MAX,
+      id: k, name: BOOSTS[k].name, desc: BOOSTS[k].desc, level: lvlOf(k), cost: boostCost(k, lvlOf(k)), max: BOOST_MAX,
     })),
     cards: CARDS.map((c) => {
       const level = p.cards[c.id] || 0;
@@ -223,12 +265,15 @@ export function view(p: Player, now: number) {
     }),
     daily: {
       rewards: DAILY,
-      claimedToday,
-      filled: claimedToday ? ((eff - 1) % 7) + 1 : eff % 7,
+      claimedToday: dl.claimedToday,
+      filled: dl.claimedToday ? ((dl.eff - 1) % 7) + 1 : dl.eff % 7,
+      next: DAILY[(dl.claimedToday ? dl.eff : dl.eff) % 7],
     },
-    ads: { left: l.left, nextAt: l.nextAt, reward: AD.reward },
+    ads: { left: l.left, used: l.used, perDay: AD.perDay, nextAt: l.nextAt, reward: AD.reward, gemSteps: AD_GEMS },
+    gems: GEMS.map((g) => ({ id: g.id, name: g.name, rank: g.rank, count: gems[g.id] || 0 })),
     refCount: p.ref_count,
     refReward: { inviter: REF.inviter, invitee: REF.invitee },
+    refSteps: REF_STEPS.map((x) => ({ ...x, claimed: !!p.claimed[x.id], reached: p.ref_count >= x.at })),
     tasks: taskList(p, ch ? `https://t.me/${ch}` : null),
     now,
   };

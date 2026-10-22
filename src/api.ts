@@ -6,14 +6,16 @@ export type TaskT = {
 };
 export type LevelInfo = { lvl: number; name: string; at: number; reward: number; reached: boolean; claimed: boolean };
 export type SkinInfo = { id: string; name: string; level: number; unlocked: boolean };
+export type GemInfo = { id: string; name: string; rank: number; count: number };
+export type RefStep = { id: string; at: number; coins: number; gem: string | null; claimed: boolean; reached: boolean };
 export type State = {
   level: { lvl: number; name: string; at: number; next: { lvl: number; name: string; at: number } | null };
   levels: LevelInfo[]; skin: string; skins: SkinInfo[]; totalBlasts: number;
   id: number; name: string; coins: number; totalEarned: number; energy: number; maxEnergy: number;
-  regen: number; pph: number; tapLevel: number; boosts: Boost[]; cards: CardT[];
-  daily: { rewards: number[]; claimedToday: boolean; filled: number };
-  ads: { left: number; nextAt: number; reward: number };
-  refCount: number; refReward: { inviter: number; invitee: number };
+  regenEveryS: number; regenPerTick: number; pph: number; tapLevel: number; boosts: Boost[]; cards: CardT[];
+  daily: { rewards: number[]; claimedToday: boolean; filled: number; next: number };
+  ads: { left: number; used: number; perDay: number; nextAt: number; reward: number; gemSteps: Record<string, string> };
+  gems: GemInfo[]; refCount: number; refReward: { inviter: number; invitee: number }; refSteps: RefStep[];
   tasks: TaskT[]; now: number; clientAt: number;
 };
 

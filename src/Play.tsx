@@ -10,9 +10,10 @@ const TRIES = 3;
 interface PlayProps {
   energy: number;
   maxEnergy: number;
-  regen: number;
+  regenEveryS: number;
+  regenPerTick: number;
   tapLevel: number;
-  onBlast: (perfect: boolean, pts: number) => void;
+  onTap: (hit: boolean, perfect: boolean, pts: number) => void;
   ctx: Ctx;
   currentLevel: number;
   onCoinHit: () => void;
@@ -21,9 +22,10 @@ interface PlayProps {
 export default function Play({
   energy,
   maxEnergy,
-  regen,
+  regenEveryS,
+  regenPerTick,
   tapLevel,
-  onBlast,
+  onTap,
   ctx,
   currentLevel,
   onCoinHit,
@@ -80,7 +82,7 @@ export default function Play({
 
     if (energyRef.current <= 0) {
       sound.playMiss();
-      ctx.flash('Out of energy! Tap the refill button or wait for recharge.');
+      ctx.flash(`Out of energy! +${regenPerTick} energy every ${regenEveryS}s, or watch an optional ad to refill.`);
       return;
     }
 
@@ -90,7 +92,7 @@ export default function Play({
       const isGold = Math.random() < 0.15;
       const pts = (isGold ? 15 : 1 + Math.floor(Math.random() * 9)) + (perfect ? 2 : 0) + (tapLevel - 1) * 2;
 
-      onBlast(perfect, pts);
+      onTap(true, perfect, pts);
       haptic('medium');
       sound.playBlast(isGold);
 
@@ -117,7 +119,8 @@ export default function Play({
       boxRef.current = (i + 1 + Math.floor(Math.random() * 8)) % 9;
       scheduleMove();
     } else {
-      // MISS
+      // MISS: a missed tap still costs 1 energy
+      onTap(false, false, 0);
       triesRef.current -= 1;
       setTries(triesRef.current);
       setShake({ cell: i, id: now });
@@ -135,7 +138,7 @@ export default function Play({
   };
 
   const out = energy <= 0;
-  const canAd = ctx.s.ads.left > 0 && !ctx.adBusy && energy < maxEnergy;
+  const canAd = ctx.s.ads.left > 0 && !ctx.adBusy && energy < maxEnergy && ctx.nowMs >= ctx.s.ads.nextAt;
 
   return (
     <section className="relative z-10">
@@ -168,7 +171,7 @@ export default function Play({
           ))}
         </div>
         <span className="energy-subtext">
-          {combo > 1 ? `${combo} perfect blasts in a row!` : 'Each blast uses 1 energy'}
+          {combo > 1 ? `${combo} perfect blasts in a row!` : 'Every tap uses 1 energy'}
         </span>
       </div>
 
@@ -224,7 +227,7 @@ export default function Play({
       {/* Out of energy notice if zero */}
       {out && (
         <div className="p-3 mb-3 bg-red-950/40 border-l-4 border-amber-500 rounded text-[13px] text-amber-200">
-          Out of energy. It recharges at {regen} per second, or refill immediately with an optional ad.
+          Out of energy. You get +{regenPerTick} energy every {regenEveryS} seconds, or refill instantly with an optional ad.
         </div>
       )}
 
@@ -246,6 +249,7 @@ export default function Play({
             ? 'Loading ad…'
             : `Watch an ad to refill energy (${ctx.s.ads.left} left today)`}
         </span>
+        <em className="ad-pill">AD</em>
       </button>
 
       {/* Disclaimer */}

@@ -32,6 +32,8 @@ create table if not exists public.players (
 alter table public.players add column if not exists skin text not null default 'classic';
 alter table public.players add column if not exists total_blasts bigint not null default 0;
 
+alter table public.players add column if not exists gems jsonb not null default '{}'::jsonb;
+
 create index if not exists players_earned_idx on public.players (total_earned desc);
 create index if not exists players_ref_idx on public.players (referred_by);
 

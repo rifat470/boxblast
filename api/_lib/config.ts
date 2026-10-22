@@ -1,11 +1,10 @@
 // Game economy + rules. Everything here is enforced on the server.
 export const ENERGY_BASE = 500;
-export const ENERGY_STEP = 100; // per energy level
-export const REGEN_BASE = 1; // energy per second
-export const REGEN_STEP = 0.5;
+export const ENERGY_STEP = 100; // per energy-tank level
+export const REGEN_EVERY_S = 5; // energy comes back in steps, one step every 5 seconds
 export const LEVEL_ENERGY = 50; // extra max energy for every level above 1
 export const MAX_OFFLINE_S = 3 * 3600; // passive income collects up to 3h while away
-export const MAX_TAPS_PER_S = 5;
+export const MAX_TAPS_PER_S = 12;
 export const BOOST_MAX = 20;
 export const CARD_MAX = 30;
 
@@ -25,7 +24,7 @@ export const cardCost = (c: Card, level: number) => Math.floor(c.baseCost * Math
 export const BOOSTS = {
   tap: { name: 'Blast power', desc: '+2 coins on every blast', base: 500 },
   energy: { name: 'Energy tank', desc: '+100 max energy', base: 300 },
-  regen: { name: 'Recharge speed', desc: '+0.5 energy per second', base: 400 },
+  regen: { name: 'Recharge speed', desc: '+1 energy every 5 seconds', base: 400 },
 } as const;
 export type BoostKind = keyof typeof BOOSTS;
 export const boostCost = (k: BoostKind, level: number) => Math.floor(BOOSTS[k].base * Math.pow(1.9, level - 1));
@@ -36,12 +35,42 @@ export const REF = { inviter: 2500, invitee: 1000 };
 // Optional rewarded ads. Always the player's choice, never required.
 export const AD = { reward: 250, perDay: 10, cooldownS: 60, confirmWindowS: 300 };
 
-export type TaskDef = { id: string; title: string; reward: number; kind: 'channel' | 'refs' | 'earn'; target: number };
+// ---- Gems: in-game collectibles with NO cash value. ----
+export type GemDef = { id: string; name: string; rank: number };
+export const GEMS: GemDef[] = [
+  { id: 'white', name: 'Moonstone', rank: 1 },
+  { id: 'black', name: 'Radiant Onyx', rank: 2 },
+  { id: 'silver', name: 'Silver Star', rank: 3 },
+  { id: 'red', name: 'Royal Ruby', rank: 4 },
+  { id: 'blue', name: 'Sapphire', rank: 5 },
+  { id: 'diamond', name: 'Eternal Diamond', rank: 6 },
+];
+// Daily optional-ad gems: total ads watched today -> gem.
+export const AD_GEMS: Record<number, string> = { 5: 'blue', 10: 'diamond' };
+
+// ---- Referral ladder (1..100 friends). Claim keys ref1/ref3/ref10 are the same as in older versions. ----
+export type RefStep = { id: string; at: number; coins: number; gem: string | null };
+export const REF_STEPS: RefStep[] = [
+  { id: 'ref1', at: 1, coins: 1000, gem: null },
+  { id: 'ref3', at: 3, coins: 3000, gem: null },
+  { id: 'ref5', at: 5, coins: 6000, gem: null },
+  { id: 'ref10', at: 10, coins: 10000, gem: 'white' },
+  { id: 'ref20', at: 20, coins: 25000, gem: 'black' },
+  { id: 'ref30', at: 30, coins: 45000, gem: 'silver' },
+  { id: 'ref50', at: 50, coins: 100000, gem: 'red' },
+  { id: 'ref70', at: 70, coins: 160000, gem: 'blue' },
+  { id: 'ref100', at: 100, coins: 300000, gem: 'diamond' },
+];
+
+export type TaskDef = {
+  id: string; title: string; reward: number; kind: 'channel' | 'earn' | 'blasts' | 'level'; target: number;
+};
 export const TASKS: TaskDef[] = [
   { id: 'channel', title: 'Join the BoxBlast channel', reward: 1500, kind: 'channel', target: 1 },
-  { id: 'ref1', title: 'Invite 1 friend', reward: 1000, kind: 'refs', target: 1 },
-  { id: 'ref3', title: 'Invite 3 friends', reward: 3000, kind: 'refs', target: 3 },
-  { id: 'ref10', title: 'Invite 10 friends', reward: 10000, kind: 'refs', target: 10 },
+  { id: 'blast100', title: 'Blast 100 boxes', reward: 1000, kind: 'blasts', target: 100 },
+  { id: 'blast1000', title: 'Blast 1,000 boxes', reward: 4000, kind: 'blasts', target: 1000 },
+  { id: 'lvl3', title: 'Reach level 3', reward: 2000, kind: 'level', target: 3 },
+  { id: 'lvl5', title: 'Reach level 5', reward: 6000, kind: 'level', target: 5 },
   { id: 'earn10k', title: 'Earn 10,000 coins in total', reward: 1000, kind: 'earn', target: 10000 },
   { id: 'earn100k', title: 'Earn 100,000 coins in total', reward: 5000, kind: 'earn', target: 100000 },
 ];
@@ -50,15 +79,15 @@ export const TASKS: TaskDef[] = [
 export type LevelDef = { lvl: number; name: string; at: number; reward: number };
 export const LEVELS: LevelDef[] = [
   { lvl: 1, name: 'Rookie', at: 0, reward: 0 },
-  { lvl: 2, name: 'Packer', at: 2000, reward: 1000 },
-  { lvl: 3, name: 'Loader', at: 10000, reward: 3000 },
-  { lvl: 4, name: 'Driver', at: 40000, reward: 8000 },
-  { lvl: 5, name: 'Supervisor', at: 120000, reward: 20000 },
-  { lvl: 6, name: 'Manager', at: 350000, reward: 50000 },
-  { lvl: 7, name: 'Director', at: 1000000, reward: 120000 },
-  { lvl: 8, name: 'Tycoon', at: 3000000, reward: 300000 },
-  { lvl: 9, name: 'Mogul', at: 8000000, reward: 700000 },
-  { lvl: 10, name: 'Legend', at: 20000000, reward: 1500000 },
+  { lvl: 2, name: 'Novice', at: 2000, reward: 1000 },
+  { lvl: 3, name: 'Adept', at: 10000, reward: 3000 },
+  { lvl: 4, name: 'Skilled', at: 40000, reward: 8000 },
+  { lvl: 5, name: 'Elite', at: 120000, reward: 20000 },
+  { lvl: 6, name: 'Veteran', at: 350000, reward: 50000 },
+  { lvl: 7, name: 'Master', at: 1000000, reward: 120000 },
+  { lvl: 8, name: 'Champion', at: 3000000, reward: 300000 },
+  { lvl: 9, name: 'Legend', at: 8000000, reward: 700000 },
+  { lvl: 10, name: 'Boss', at: 20000000, reward: 1500000 },
 ];
 export const levelOf = (totalEarned: number): LevelDef => {
   let cur = LEVELS[0];
@@ -66,16 +95,5 @@ export const levelOf = (totalEarned: number): LevelDef => {
   return cur;
 };
 
-// ---- Box designs: one unlocks at every level. The look is chosen on the client. ----
-export const SKINS = [
-  { id: 'classic', name: 'Kraft Classic', level: 1 },
-  { id: 'ocean', name: 'Ocean Blue', level: 2 },
-  { id: 'emerald', name: 'Emerald', level: 3 },
-  { id: 'sunset', name: 'Sunset', level: 4 },
-  { id: 'royal', name: 'Royal Purple', level: 5 },
-  { id: 'rose', name: 'Rose', level: 6 },
-  { id: 'neon', name: 'Neon Night', level: 7 },
-  { id: 'lava', name: 'Lava', level: 8 },
-  { id: 'gold', name: 'Pure Gold', level: 9 },
-  { id: 'diamond', name: 'Diamond', level: 10 },
-] as const;
+// ---- Box designs: one per level (lv1..lv10). Locked until the level is really reached. ----
+export const SKINS = LEVELS.map((l) => ({ id: `lv${l.lvl}`, name: l.name, level: l.lvl }));

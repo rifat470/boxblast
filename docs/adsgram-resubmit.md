@@ -8,9 +8,9 @@ My platform BoxBlast (PlatformID 52207, TMA) was declined by clause 11 on 10/20/
 beyond displaying ads"). I have rebuilt it into a full game with its own backend. Could you please re-review it?
 
 What the app contains now (all working, none of it ad-related):
-- Original tap game: find the hidden box among 9 crates (3 tries, combo, energy)
+- Original tap game: find the hidden box among 9 crates (3 tries, combo, energy that costs 1 per tap and refills +1 every 5 seconds)
 - 10 player levels; the whole app changes colour and unlocks a new box design at each level
-- Warehouse upgrades with hourly passive income, boosts, daily streak rewards, tasks, server-tracked referrals, leaderboard
+- Warehouse upgrades with hourly passive income, boosts, daily streak rewards, tasks, server-tracked referral ladder (1 to 100 friends), gem collection, leaderboard
 - Server-side accounts (Supabase) bound to the Telegram ID, initData signature validation, all balances checked on the server
 - In-app "How to play" guide and a public Privacy Policy: <YOUR VERCEL URL>/privacy.html
 - Coins are in-game points only. There are no cash payouts or withdrawals, so clause 8 does not apply.
@@ -18,6 +18,7 @@ What the app contains now (all working, none of it ad-related):
 Ad placement (Rewarded block only, always optional, started only by a user tap):
 1. "Blast" tab: button under the crate grid, "Watch an ad to refill energy"
 2. "Earn" tab, section "Bonus coins": "Watch a short ad  +250 coins"
+3. "Earn" tab, Daily reward: optional "Watch ad · Claim x2" (the normal daily reward works without any ad)
 - Basic functions work without ads. Reward is small (250 coins or an energy refill), max 10 ads per day, 60-second cooldown.
 - The Reward URL is configured; the server grants the reward only after Adsgram's server-side confirmation.
 
