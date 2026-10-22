@@ -444,18 +444,29 @@ export default function Profile({ ctx }: ProfileProps) {
               </p>
             </div>
 
+            {/* Main Privacy Statement requested by user */}
+            <div className="bg-[#18202d] border border-amber-500/30 rounded-xl p-4 flex flex-col gap-2 shadow-inner">
+              <div className="flex items-center gap-2">
+                <span className="text-base">🛡️</span>
+                <b className="text-amber-400 text-sm font-bold">Privacy Statement</b>
+              </div>
+              <p className="m-0 text-slate-200 text-xs sm:text-sm leading-relaxed font-medium">
+                We never collect any personal data. This is a Telegram-based game where Telegram automatically sets your in-game name. We never ask for any private information. Just play regularly and collect points and gems. The more you collect, the more benefits and exciting surprises await you in future updates!
+              </p>
+            </div>
+
             <div className="flex flex-col gap-3 text-xs text-slate-300 leading-relaxed">
               <div className="bg-[#18202d] border border-white/5 rounded-xl p-3.5 flex flex-col gap-1.5">
                 <b className="text-white text-sm font-bold">1. Information We Collect</b>
                 <p className="m-0 text-slate-300">
-                  When you open the BoxBlast Mini App, Telegram provides your public Telegram User ID, first name, and username. We record your in-game statistics including level progress, coin balance, equipped box skins, and completed milestones.
+                  We never collect any personal data. This is a Telegram-based game where Telegram automatically sets your in-game name. We never ask for any private information.
                 </p>
               </div>
 
               <div className="bg-[#18202d] border border-white/5 rounded-xl p-3.5 flex flex-col gap-1.5">
                 <b className="text-white text-sm font-bold">2. How We Use Information</b>
                 <p className="m-0 text-slate-300">
-                  Your data is solely used to preserve your game progress across sessions, power fair leaderboards, grant invite bonuses, and prevent gameplay automation abuse.
+                  Just play regularly and collect points and gems. The more you collect, the more benefits and exciting surprises await you in future updates!
                 </p>
               </div>
 
