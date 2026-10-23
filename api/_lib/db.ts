@@ -33,7 +33,7 @@ export type Player = {
   pph: number;
   last_collect: string;
   cards: Record<string, number>;
-  claimed: Record<string, number>;
+  claimed: Record<string, any>;
   streak: number;
   last_daily: string | null;
   referred_by: number | null;

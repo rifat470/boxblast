@@ -44,6 +44,9 @@ create table if not exists public.ad_events (
   created_at timestamptz not null default now()
 );
 create index if not exists ad_events_lookup on public.ad_events (tg_id, claimed, created_at);
+alter table public.ad_events add column if not exists network text not null default 'adsgram';
+alter table public.ad_events add column if not exists ymid text;
+create unique index if not exists ad_events_ymid_uidx on public.ad_events (network, ymid) where ymid is not null;
 
 -- Lock the tables: only the server (service role key) can read or write.
 alter table public.players enable row level security;

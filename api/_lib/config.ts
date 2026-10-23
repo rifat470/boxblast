@@ -33,7 +33,18 @@ export const DAILY = [100, 200, 300, 500, 800, 1200, 2000];
 export const REF = { inviter: 2500, invitee: 1000 };
 
 // Optional rewarded ads. Always the player's choice, never required.
-export const AD = { reward: 250, perDay: 10, cooldownS: 60, confirmWindowS: 300 };
+export const AD = { reward: 250, perDay: 20, cooldownS: 30, confirmWindowS: 300 };
+
+// ---- Daily Tasks: three optional ads per day. Each row has its own ad network and its own reward. ----
+export type DailyTaskDef = { slot: number; network: 'adsgram' | 'monetag' | 'tads'; coins: number; energy: boolean; gem: string | null };
+export const DAILY_TASKS: DailyTaskDef[] = [
+  { slot: 1, network: 'adsgram', coins: 400, energy: false, gem: null },
+  { slot: 2, network: 'monetag', coins: 800, energy: true, gem: null },
+  { slot: 3, network: 'tads', coins: 1500, energy: false, gem: null },
+];
+// Finish all three rows in one day and a bonus gem is added to the collection.
+export const DAILY_TASKS_BONUS = { coins: 2000, gem: 'white' };
+export const AD_NETWORKS = ['adsgram', 'monetag', 'tads'] as const;
 
 // ---- Gems: in-game collectibles with NO cash value. ----
 export type GemDef = { id: string; name: string; rank: number };

@@ -675,3 +675,33 @@ p {
 .gem-card{background:radial-gradient(100% 70% at 50% 0%,#233056,#121723)!important}
 .gem-pop{display:flex;justify-content:center;animation:gempop .7s cubic-bezier(.2,1.4,.4,1)}
 @keyframes gempop{from{transform:scale(.2) rotate(-25deg);opacity:0}to{transform:none;opacity:1}}
+
+/* ===== v5: Daily Tasks (Gamee style) ===== */
+.dt{background:linear-gradient(160deg,#1b2440,#121723 70%);border:1px solid rgba(255,201,60,.28);border-radius:20px;padding:16px;margin-bottom:18px;box-shadow:0 0 28px rgba(255,201,60,.1)}
+.dt-head{display:flex;justify-content:space-between;align-items:center}
+.dt-title{margin:0!important;font-size:20px;font-weight:900;letter-spacing:.08em;background:linear-gradient(90deg,#ffe08a,#ffb703);-webkit-background-clip:text;color:transparent}
+.dt-sub{font-size:12px;color:#8d98b0;margin-top:2px;font-variant-numeric:tabular-nums}
+.dt-count{font-size:15px;color:#8d98b0;background:#0c1018;border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:6px 12px}
+.dt-count b{font-size:22px;color:#ffc93c}
+.dt-bar{height:8px;border-radius:99px;background:#0c1018;margin:12px 0;overflow:hidden}
+.dt-bar i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,#22c55e,#ffc93c);transition:width .5s;box-shadow:0 0 10px rgba(255,201,60,.5)}
+.dt-row,.dt-chest{display:flex;align-items:center;gap:12px;padding:12px;border-radius:16px;background:#0f1420;border:1px solid rgba(255,255,255,.07);margin-top:10px}
+.dt-row.done{opacity:.62}
+.dt-ico{flex:none;width:44px;height:44px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:900;color:#2b1700;background:linear-gradient(135deg,#ffe08a,#ffb703);box-shadow:0 0 14px rgba(255,183,3,.4)}
+.dt-row.done .dt-ico{background:linear-gradient(135deg,#86efac,#22c55e);color:#052e16}
+.dt-info{flex:1;min-width:0}.dt-info b{font-size:14px;color:#fff}
+.dt-rew{display:flex;flex-wrap:wrap;gap:6px;margin-top:5px}
+.dt-pill{font-size:11px;font-weight:800;padding:3px 8px;border-radius:99px;background:rgba(255,201,60,.14);color:#ffd766;border:1px solid rgba(255,201,60,.3)}
+.dt-pill.energy{background:rgba(255,126,64,.14);color:#ffa571;border-color:rgba(255,126,64,.3)}
+.dt-pill.gem{background:rgba(143,208,255,.14);color:#a8dcff;border-color:rgba(143,208,255,.3)}
+.dt-chest{border-style:dashed;border-color:rgba(255,201,60,.35)}
+.dt-chest.ready{border-style:solid;box-shadow:0 0 18px rgba(255,201,60,.35)}
+.dt-chest.got{opacity:.65}
+.dt-chest-state{font-weight:900;color:#ffc93c}
+.dt-note{font-size:11px;color:#8d98b0;margin:12px 0 0;text-align:center}
+.dt-teaser{width:100%;display:flex;align-items:center;gap:12px;margin:12px 0;padding:12px 14px;border-radius:16px;border:1px solid rgba(255,201,60,.35);background:linear-gradient(135deg,rgba(255,201,60,.14),rgba(255,126,64,.08));color:#fff;text-align:left;cursor:pointer;animation:dtglow 2.6s ease-in-out infinite}
+@keyframes dtglow{50%{box-shadow:0 0 22px rgba(255,201,60,.3)}}
+.dt-teaser-ico{font-size:26px}.dt-teaser-txt{flex:1;display:flex;flex-direction:column}
+.dt-teaser-txt b{font-size:14px}.dt-teaser-txt small{font-size:11.5px;color:#d7c28a}
+.dt-teaser-go{font-size:24px;color:#ffc93c}
+.away-ico{font-size:64px;filter:drop-shadow(0 0 18px rgba(255,201,60,.5))}

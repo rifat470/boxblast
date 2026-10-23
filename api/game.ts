@@ -2,7 +2,7 @@ import { verifyInitData } from './_lib/auth.js';
 import { db, getPlayer, HttpError, mutate, type Player } from './_lib/db.js';
 import { AD, REF, TASKS, levelOf } from './_lib/config.js';
 import {
-  blast, buyBoost, buyCard, checkAdAllowed, claimDaily, claimLevel, claimRef, claimTask, grantAd, newPlayer, setSkin, settle, view,
+  blast, buyBoost, buyCard, checkAdAllowed, claimDaily, claimDailyTask, claimLevel, claimRef, claimTask, grantAd, newPlayer, setSkin, settle, view,
 } from './_lib/game.js';
 
 const bad = (m: string) => new HttpError(400, m);
@@ -19,7 +19,7 @@ async function isChannelMember(userId: number) {
 }
 
 // Adsgram calls /api/ad-reward after a completed ad; one confirmation = one reward. Returns false if none found.
-async function consumeAdConfirmation(id: number, now: number) {
+async function consumeAdConfirmation(id: number, now: number, network = 'adsgram') {
   if (process.env.AD_SERVER_CONFIRM === 'false') return true;
   const since = new Date(now - AD.confirmWindowS * 1000).toISOString();
   const { data } = await db()
@@ -27,6 +27,7 @@ async function consumeAdConfirmation(id: number, now: number) {
     .select('id')
     .eq('tg_id', id)
     .eq('claimed', false)
+    .eq('network', network)
     .gte('created_at', since)
     .order('id', { ascending: true })
     .limit(1);
@@ -40,6 +41,8 @@ async function consumeAdConfirmation(id: number, now: number) {
     .select('id');
   return !!upd?.length;
 }
+
+const netOf = (n: any) => (['adsgram', 'monetag', 'tads'].includes(String(n)) ? String(n) : 'adsgram');
 
 async function init(auth: { user: any; startParam: string }, now: number) {
   const { user, startParam } = auth;
@@ -74,13 +77,15 @@ async function init(auth: { user: any; startParam: string }, now: number) {
       }
     }
   }
+  let away = 0;
   const out = await mutate(user.id, (cur) => {
     const s = settle(cur, now);
+    away = Math.max(0, s.coins - cur.coins);
     s.first_name = (user.first_name || s.first_name || 'Player').slice(0, 40);
     s.username = user.username ? String(user.username).slice(0, 40) : null;
     return { player: s };
   });
-  return { state: view(out.player, now) };
+  return { state: view(out.player, now), away };
 }
 
 async function route(auth: { user: any; startParam: string }, body: any) {
@@ -116,7 +121,8 @@ async function route(auth: { user: any; startParam: string }, body: any) {
       const st = settle(cur, now);
       if (st.last_daily === new Date(now).toISOString().slice(0, 10)) throw new HttpError(409, 'Already claimed today');
       checkAdAllowed(st, now);
-      if (!(await consumeAdConfirmation(id, now))) throw new HttpError(409, 'ad_not_confirmed');
+      const net = netOf(body.network);
+      if (!(await consumeAdConfirmation(id, now, net))) throw new HttpError(409, 'ad_not_confirmed');
       return act((s) => claimDaily(s, now, true));
     }
     case 'claimRef':
@@ -133,8 +139,19 @@ async function route(auth: { user: any; startParam: string }, body: any) {
       const cur = await getPlayer(id);
       if (!cur) throw new HttpError(404, 'Player not found');
       checkAdAllowed(settle(cur, now), now);
-      if (!(await consumeAdConfirmation(id, now))) throw new HttpError(409, 'ad_not_confirmed');
+      const net = netOf(body.network);
+      if (!(await consumeAdConfirmation(id, now, net))) throw new HttpError(409, 'ad_not_confirmed');
       return act((s) => grantAd(s, kind, now));
+    }
+    case 'dailyTask': {
+      const slot = Number(body.slot);
+      const net = netOf(body.network);
+      const cur = await getPlayer(id);
+      if (!cur) throw new HttpError(404, 'Player not found');
+      const st = settle(cur, now);
+      checkAdAllowed(st, now);
+      if (!(await consumeAdConfirmation(id, now, net))) throw new HttpError(409, 'ad_not_confirmed');
+      return act((s) => claimDailyTask(s, slot, net, now));
     }
     case 'leaderboard': {
       const me = await getPlayer(id);

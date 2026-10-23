@@ -1,3 +1,24 @@
+# BoxBlast v5 (Adsgram + Monetag + TADS, Daily Tasks)
+
+## 1. Supabase (run FIRST, safe to repeat)
+Run `supabase/migration_v5.sql` in the Supabase SQL Editor. Open `/api/health`: `migration_v5` must say `ok`.
+
+## 2. Reward confirmation URLs (without them nobody gets an ad reward)
+| Network | Where | URL |
+|---|---|---|
+| Adsgram (block 55501) | Block settings, Reward URL | `https://YOUR-APP.vercel.app/api/ad-reward?userid=[userId]&secret=AD_REWARD_SECRET` |
+| Monetag (zone 12108818) | Zone settings, Postback | `https://YOUR-APP.vercel.app/api/monetag-postback?secret=AD_REWARD_SECRET&ymid={ymid}&event_type={event_type}&reward_event_type={reward_event_type}&telegram_id={telegram_id}&zone_id={zone_id}` |
+| TADS (widget 12842, Fullscreen) | Widget settings, Webhook URL | `https://YOUR-APP.vercel.app/api/tads-webhook?secret=AD_REWARD_SECRET` |
+
+## 3. Where each ad appears
+- Earn tab, DAILY TASKS: row 1 Adsgram, row 2 Monetag, row 3 TADS. Rows 2 and 3 use Adsgram if their own network has no ad within 5 seconds.
+- Blast tab, refill energy: Monetag first, then Adsgram.
+- Earn tab, bonus coins: Adsgram first, then Monetag.
+- Earn tab, daily reward x2: TADS first, then Adsgram.
+All ads are optional and only start when the player taps a button.
+
+---
+
 # BoxBlast v4 — Complete Setup & Architecture Guide
 
 A production-ready Telegram Mini App game built with React, TypeScript, Tailwind CSS, Vercel Serverless Functions, and Supabase PostgreSQL.

@@ -1,6 +1,7 @@
 import { fmt, tg } from './api';
 import type { Ctx } from './App';
 import GemIcon from './GemIcon';
+import DailyTasks from './DailyTasks';
 
 export default function Earn({ ctx }: { ctx: Ctx }) {
   const { s, act, flash, adFor, adBusy, nowMs, showGem } = ctx;
@@ -27,6 +28,8 @@ export default function Earn({ ctx }: { ctx: Ctx }) {
 
   return (
     <section>
+      <DailyTasks ctx={ctx} />
+
       <h2>Daily reward</h2>
       <div className="days">
         {s.daily.rewards.map((r, i) => (

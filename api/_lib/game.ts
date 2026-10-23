@@ -2,7 +2,7 @@ import { randomInt } from 'node:crypto';
 import {
   AD, AD_GEMS, BOOSTS, BOOST_MAX, CARDS, CARD_MAX, DAILY, ENERGY_BASE, ENERGY_STEP, GEMS, MAX_OFFLINE_S,
   MAX_TAPS_PER_S, REGEN_EVERY_S, REF_STEPS, TASKS, boostCost, cardCost, type BoostKind,
-  LEVELS, LEVEL_ENERGY, REF, SKINS, levelOf,
+  LEVELS, LEVEL_ENERGY, REF, SKINS, levelOf, DAILY_TASKS, DAILY_TASKS_BONUS,
 } from './config.js';
 import { HttpError, type Player } from './db.js';
 
@@ -215,6 +215,35 @@ export function grantAd(p: Player, kind: string, now: number) {
   return { player: p, result: { gem, kind } };
 }
 
+// ---- Daily Tasks: progress lives in claimed.dt = { d: 'YYYY-MM-DD', done: [slots] } and resets every UTC day ----
+export function dailyTaskState(p: Player, now: number) {
+  const dt: any = p.claimed?.dt;
+  const done: number[] = dt && dt.d === day(now) && Array.isArray(dt.done) ? dt.done : [];
+  return { done, bonusGot: !!(dt && dt.d === day(now) && dt.bonus) };
+}
+
+export function claimDailyTask(p: Player, slot: number, network: string, now: number) {
+  const def = DAILY_TASKS.find((x) => x.slot === slot);
+  if (!def) throw new HttpError(400, 'Unknown daily task');
+  // The row's own network, or Adsgram when that network had no ad within 5 seconds.
+  if (network !== def.network && network !== 'adsgram') throw new HttpError(400, 'Wrong ad network');
+  const st = dailyTaskState(p, now);
+  if (st.done.includes(slot)) throw new HttpError(409, 'Already completed today');
+  checkAdAllowed(p, now);
+  const done = [...st.done, slot].sort();
+  const gem = registerAd(p, now);
+  earn(p, def.coins);
+  if (def.energy) p.energy = maxEnergy(p);
+  let bonus = false;
+  if (done.length === DAILY_TASKS.length) {
+    bonus = true;
+    earn(p, DAILY_TASKS_BONUS.coins);
+    addGem(p, DAILY_TASKS_BONUS.gem);
+  }
+  p.claimed = { ...p.claimed, dt: { d: day(now), done, bonus } };
+  return { player: p, result: { slot, coins: def.coins, energy: def.energy, gem, bonus, bonusCoins: bonus ? DAILY_TASKS_BONUS.coins : 0, bonusGem: bonus ? DAILY_TASKS_BONUS.gem : null } };
+}
+
 export function taskList(p: Player, channelUrl: string | null) {
   return TASKS.filter((t) => t.kind !== 'channel' || channelUrl).map((t) => ({
     id: t.id,
@@ -274,6 +303,12 @@ export function view(p: Player, now: number) {
     refCount: p.ref_count,
     refReward: { inviter: REF.inviter, invitee: REF.invitee },
     refSteps: REF_STEPS.map((x) => ({ ...x, claimed: !!p.claimed[x.id], reached: p.ref_count >= x.at })),
+    dailyTasks: {
+      done: dailyTaskState(p, now).done,
+      bonusGot: dailyTaskState(p, now).bonusGot,
+      rows: DAILY_TASKS.map((x) => ({ slot: x.slot, network: x.network, coins: x.coins, energy: x.energy })),
+      bonus: DAILY_TASKS_BONUS,
+    },
     tasks: taskList(p, ch ? `https://t.me/${ch}` : null),
     now,
   };

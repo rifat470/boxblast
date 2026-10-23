@@ -413,10 +413,10 @@ export default function Profile({ ctx }: ProfileProps) {
                 </div>
                 <div>
                   <div className="text-sm font-black text-white flex items-center gap-2">
-                    <span className="text-amber-400">Step 5:</span> Invites & Daily Streaks
+                    <span className="text-amber-400">Step 5:</span> Invites, Daily Streaks & Tasks
                   </div>
                   <p className="text-xs text-slate-300 mt-1 mb-0 leading-relaxed">
-                    Claim your daily reward every day for a growing streak. An optional ad doubles it. Invite friends with your personal link: you both get coins, and invite milestones from 1 to 100 friends give bonus coins and rare gems. Watching 5 optional ads in a day gives a Sapphire, 10 ads give an Eternal Diamond.
+                    Claim your daily reward every day for a growing streak. Open Daily Tasks in the Earn tab: three optional ads a day give coins, a full energy refill and a bonus chest with a rare gem! Invite friends with your personal link: you both get coins, and invite milestones from 1 to 100 friends give bonus coins and rare gems.
                   </p>
                 </div>
               </div>

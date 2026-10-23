@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type JSX } from 'react';
 import { call, fmt, tg, type State } from './api';
-import { watchAd } from './ads';
+import { watchAd, type Net } from './ads';
 import Play from './Play';
 import Mine from './Mine';
 import Earn from './Earn';
@@ -28,6 +28,9 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const BOT_LINK: string = String((import.meta as any).env?.VITE_BOT_LINK || '').trim();
 
 export type AdKind = 'coins' | 'energy' | 'daily';
+// Which network goes first for each button; the next one is used only if the first has no ad within 5 seconds.
+const ORDER: Record<AdKind, Net[]> = { energy: ['monetag', 'adsgram'], coins: ['adsgram', 'monetag'], daily: ['tads', 'adsgram'] };
+const TASK_ORDER: Record<number, Net[]> = { 1: ['adsgram'], 2: ['monetag', 'adsgram'], 3: ['tads', 'adsgram'] };
 export type Ctx = {
   s: State;
   nowMs: number;
@@ -36,6 +39,7 @@ export type Ctx = {
   adFor: (kind: AdKind) => Promise<void>;
   adBusy: boolean;
   showGem: (id: string) => void;
+  dailyTask: (slot: number) => Promise<void>;
 };
 
 export default function App() {
@@ -50,6 +54,7 @@ export default function App() {
   const [lvlUp, setLvlUp] = useState<number | null>(null);
   const [gemWin, setGemWin] = useState<string | null>(null);
   const [coinPillBump, setCoinPillBump] = useState(false);
+  const [away, setAway] = useState(0);
 
   const q = useRef<B[]>([]);
   const inflight = useRef<B[]>([]);
@@ -102,7 +107,10 @@ export default function App() {
   const loadGame = () => {
     setLoadErr('');
     call('init')
-      .then((r) => put(r.state))
+      .then((r) => {
+        put(r.state);
+        if (r.away >= 20) setAway(r.away);
+      })
       .catch((e: any) => setLoadErr(e?.message || 'Could not load the game'));
   };
 
@@ -162,41 +170,77 @@ export default function App() {
     }
   };
 
-  // Rewarded ads: Adsgram shows the ad, then OUR SERVER checks Adsgram's confirmation and pays the reward.
+  // Rewarded ads: the ad network shows the ad, then OUR SERVER checks that network's confirmation and pays the reward.
+  const NOAD = 'No ad available right now. Please try again in a minute.';
+  const confirmed = async (fn: (net: Net) => Promise<any>, net: Net) => {
+    for (let i = 0; i < 8; i++) {
+      try {
+        return await fn(net);
+      } catch (e: any) {
+        if (e.message === 'ad_not_confirmed' && i < 7) {
+          await sleep(1200);
+          continue;
+        }
+        throw e;
+      }
+    }
+    return null;
+  };
+  const celebrate = () => {
+    sound.playLevelUp();
+    triggerConfetti(window.innerWidth / 2, window.innerHeight / 2, ['#ffc93c', '#22c55e', '#ffffff']);
+  };
+  const adErr = (e: any) => flash(e.message === 'ad_not_confirmed' ? 'Ad reward not confirmed yet. Please try again in a moment.' : e.message);
+
   const adFor = async (kind: AdKind) => {
     if (adBusy || !s) return;
     if (s.ads.left <= 0) return flash('Daily ad limit reached. Come back tomorrow.');
     setAdBusy(true);
     try {
       sound.playTap();
-      const r = await watchAd();
-      if (r === 'unavailable') return flash('Ads are not available right now. Please try again later.');
-      if (r === 'noad') return flash('No ad available right now. Try again in a minute.');
-      if (r === 'skipped') return flash('Watch the full ad to get the reward.');
+      const r = await watchAd(ORDER[kind], `${kind}_btn`);
+      if (r.status === 'unavailable' || r.status === 'noad') return flash(NOAD);
+      if (r.status === 'skipped') return flash('Watch the full ad to get the reward.');
       await flushAll();
-      let res: any = null;
-      for (let i = 0; i < 7; i++) {
-        try {
-          res = kind === 'daily' ? await call('claimDaily', { double: true }) : await call('adClaim', { kind });
-          break;
-        } catch (e: any) {
-          if (e.message === 'ad_not_confirmed' && i < 6) {
-            await sleep(1200);
-            continue;
-          }
-          throw e;
-        }
-      }
+      const res = await confirmed(
+        (net) => (kind === 'daily' ? call('claimDaily', { double: true, network: net }) : call('adClaim', { kind, network: net })),
+        r.network,
+      );
       if (!res) return;
       put(res.state);
-      sound.playLevelUp();
-      triggerConfetti(window.innerWidth / 2, window.innerHeight / 2, ['#ffc93c', '#22c55e', '#ffffff']);
+      celebrate();
       if (kind === 'energy') flash('⚡ Energy fully refilled!');
       else if (kind === 'daily') flash(`Daily reward doubled: +${fmt(res.result.reward)} coins`);
       else flash(`+${fmt(res.state.ads.reward)} bonus coins`);
       if (res.result?.gem) setTimeout(() => showGem(res.result.gem), 500);
     } catch (e: any) {
-      flash(e.message === 'ad_not_confirmed' ? 'Ad reward not confirmed yet. Please try again in a moment.' : e.message);
+      adErr(e);
+    } finally {
+      setAdBusy(false);
+    }
+  };
+
+  // Daily Tasks (3 rows): row 1 Adsgram, row 2 Monetag, row 3 TADS. Row 2 and 3 use Adsgram if their own network has no ad in 5 s.
+  const dailyTask = async (slot: number) => {
+    if (adBusy || !s) return;
+    if (s.ads.left <= 0) return flash('Daily ad limit reached. Come back tomorrow.');
+    setAdBusy(true);
+    try {
+      sound.playTap();
+      const r = await watchAd(TASK_ORDER[slot] || ['adsgram'], `task_${slot}`);
+      if (r.status === 'unavailable' || r.status === 'noad') return flash(NOAD);
+      if (r.status === 'skipped') return flash('Watch the full ad to get the reward.');
+      await flushAll();
+      const res = await confirmed((net) => call('dailyTask', { slot, network: net }), r.network);
+      if (!res) return;
+      put(res.state);
+      celebrate();
+      const x = res.result;
+      flash(`Task ${slot}/3 done: +${fmt(x.coins)} coins${x.energy ? ' and full energy' : ''}`);
+      if (x.bonus) setTimeout(() => showGem(x.bonusGem), 700);
+      else if (x.gem) setTimeout(() => showGem(x.gem), 700);
+    } catch (e: any) {
+      adErr(e);
     } finally {
       setAdBusy(false);
     }
@@ -254,7 +298,7 @@ export default function App() {
     : 100;
   const skinLvl = Math.min(lvl, Math.max(1, Number(/^lv(\d+)$/.exec(s.skin)?.[1] || lvl)));
 
-  const ctx: Ctx = { s, nowMs, act, flash, adFor, adBusy, showGem };
+  const ctx: Ctx = { s, nowMs, act, flash, adFor, adBusy, showGem, dailyTask };
 
   return (
     <div className="relative min-h-screen text-[#f4efe6] overflow-x-hidden">
@@ -303,6 +347,20 @@ export default function App() {
               }}
             />
           )}
+          {tab === 'play' && (
+            <button className="dt-teaser" onClick={() => setTab('earn')}>
+              <span className="dt-teaser-ico" aria-hidden="true">🎁</span>
+              <span className="dt-teaser-txt">
+                <b>Daily tasks {s.dailyTasks.done.length}/{s.dailyTasks.rows.length}</b>
+                <small>
+                  {s.dailyTasks.done.length >= s.dailyTasks.rows.length
+                    ? 'All done today. See you tomorrow!'
+                    : `Earn up to ${fmt(s.dailyTasks.rows.reduce((a, r) => a + r.coins, 0) + s.dailyTasks.bonus.coins)} coins + a gem`}
+                </small>
+              </span>
+              <span className="dt-teaser-go">›</span>
+            </button>
+          )}
           {tab === 'mine' && <Mine ctx={ctx} coins={liveCoins} />}
           {tab === 'earn' && <Earn ctx={ctx} />}
           {tab === 'friends' && <Friends ctx={ctx} />}
@@ -322,6 +380,21 @@ export default function App() {
               <div className="stack">
                 <button className="btn" onClick={() => { setLvlUp(null); setTab('profile'); }}>Go to rewards</button>
                 <button className="btn ghost" onClick={() => setLvlUp(null)}>Continue</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {away > 0 && (
+          <div className="modal" role="dialog" aria-modal="true">
+            <div className="card gem-card">
+              <div className="away-ico" aria-hidden="true">🏭</div>
+              <h2 className="text-2xl font-black text-white">Welcome back!</h2>
+              <p className="text-sm text-slate-300 mt-2">
+                Your warehouse kept working while you were away and earned <b className="text-amber-300">+{fmt(away)} coins</b>.
+              </p>
+              <div className="stack">
+                <button className="btn" onClick={() => { setAway(0); sound.playLevelUp(); }}>Collect</button>
               </div>
             </div>
           </div>
