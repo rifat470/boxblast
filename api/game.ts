@@ -2,20 +2,26 @@ import { verifyInitData } from './_lib/auth.js';
 import { db, getPlayer, HttpError, mutate, type Player } from './_lib/db.js';
 import { AD, REF, TASKS, levelOf } from './_lib/config.js';
 import {
-  blast, buyBoost, buyCard, checkAdAllowed, claimDaily, claimDailyTask, claimLevel, claimRef, claimTask, grantAd, newPlayer, setSkin, settle, view,
+  blast, buyBoost, buyCard, checkAdAllowed, claimDaily, claimDailyBonus, claimDailyTask, claimLevel, claimRef, claimTask, grantAd, newPlayer, setSkin, settle, view,
 } from './_lib/game.js';
 
 const bad = (m: string) => new HttpError(400, m);
 
 async function isChannelMember(userId: number) {
   const token = process.env.BOT_TOKEN;
-  const chat = process.env.CHANNEL_USERNAME;
+  let chat = String(process.env.CHANNEL_USERNAME || '').trim();
   if (!token || !chat) throw new HttpError(409, 'Channel task is not available');
+  if (!chat.startsWith('@') && !/^-?\d+$/.test(chat)) chat = '@' + chat; // accept "BoxBlastChannel" and "@BoxBlastChannel"
   const r = await fetch(
     `https://api.telegram.org/bot${token}/getChatMember?chat_id=${encodeURIComponent(chat)}&user_id=${userId}`
   );
   const j: any = await r.json().catch(() => ({}));
-  return j?.ok && ['member', 'administrator', 'creator'].includes(j.result?.status);
+  if (!j?.ok) {
+    // Most common reasons: the bot is not an admin of the channel, or CHANNEL_USERNAME is wrong.
+    console.error('getChatMember failed:', j?.description);
+    throw new HttpError(409, 'Channel check is not set up yet: add the bot as an admin of the channel.');
+  }
+  return ['member', 'administrator', 'creator'].includes(j.result?.status);
 }
 
 // Adsgram calls /api/ad-reward after a completed ad; one confirmation = one reward. Returns false if none found.
@@ -142,6 +148,16 @@ async function route(auth: { user: any; startParam: string }, body: any) {
       const net = netOf(body.network);
       if (!(await consumeAdConfirmation(id, now, net))) throw new HttpError(409, 'ad_not_confirmed');
       return act((s) => grantAd(s, kind, now));
+    }
+    case 'dailyBonus': {
+      if (!body.double) return act((s) => claimDailyBonus(s, false, now));
+      const net = netOf(body.network);
+      const cur = await getPlayer(id);
+      if (!cur) throw new HttpError(404, 'Player not found');
+      const st = settle(cur, now);
+      checkAdAllowed(st, now);
+      if (!(await consumeAdConfirmation(id, now, net))) throw new HttpError(409, 'ad_not_confirmed');
+      return act((s) => claimDailyBonus(s, true, now));
     }
     case 'dailyTask': {
       const slot = Number(body.slot);

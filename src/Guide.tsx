@@ -38,7 +38,7 @@ export function Privacy() {
       <p><b>Zero Personal Data.</b> We never collect any personal data. This is a Telegram-based game where Telegram automatically sets your in-game name. We never ask for any private information. Just play regularly and collect points and gems. The more you collect, the more benefits and exciting surprises await you in future updates!</p>
       <p><b>What we collect.</b> Your Telegram user ID and your game data: coins, levels, upgrades, invites and activity timestamps so your progress is saved.</p>
       <p><b>What we do not collect.</b> No phone number, email address, contacts, location or messages. We do not sell your data.</p>
-      <p><b>Ads.</b> When you choose to watch an ad, our ad partner Adsgram receives your Telegram user ID to show the ad and confirm that it was watched.</p>
+      <p><b>Ads.</b> When you choose to watch an ad, our ad partners (Adsgram, Monetag and TADS) receive your Telegram user ID to show the ad and confirm that it was watched.</p>
       <p><b>Storage.</b> Data is stored securely with our database provider.</p>
       <p><b>Your choices.</b> You can ask us to delete your data at any time.</p>
     </div>

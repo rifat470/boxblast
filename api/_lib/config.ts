@@ -33,7 +33,7 @@ export const DAILY = [100, 200, 300, 500, 800, 1200, 2000];
 export const REF = { inviter: 2500, invitee: 1000 };
 
 // Optional rewarded ads. Always the player's choice, never required.
-export const AD = { reward: 250, perDay: 20, cooldownS: 30, confirmWindowS: 300 };
+export const AD = { reward: 250, perDay: 20, cooldownS: 35, confirmWindowS: 300 };
 
 // ---- Daily Tasks: three optional ads per day. Each row has its own ad network and its own reward. ----
 export type DailyTaskDef = { slot: number; network: 'adsgram' | 'monetag' | 'tads'; coins: number; energy: boolean; gem: string | null };

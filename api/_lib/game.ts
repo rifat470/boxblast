@@ -234,14 +234,22 @@ export function claimDailyTask(p: Player, slot: number, network: string, now: nu
   const gem = registerAd(p, now);
   earn(p, def.coins);
   if (def.energy) p.energy = maxEnergy(p);
-  let bonus = false;
-  if (done.length === DAILY_TASKS.length) {
-    bonus = true;
-    earn(p, DAILY_TASKS_BONUS.coins);
-    addGem(p, DAILY_TASKS_BONUS.gem);
-  }
-  p.claimed = { ...p.claimed, dt: { d: day(now), done, bonus } };
-  return { player: p, result: { slot, coins: def.coins, energy: def.energy, gem, bonus, bonusCoins: bonus ? DAILY_TASKS_BONUS.coins : 0, bonusGem: bonus ? DAILY_TASKS_BONUS.gem : null } };
+  p.claimed = { ...p.claimed, dt: { d: day(now), done, bonus: false } };
+  return { player: p, result: { slot, coins: def.coins, energy: def.energy, gem, allDone: done.length === DAILY_TASKS.length } };
+}
+
+// "Finish all 3 tasks" chest. Normal claim = coins + gem. With one optional ad the coins and the gem are doubled.
+export function claimDailyBonus(p: Player, double: boolean, now: number) {
+  const st = dailyTaskState(p, now);
+  if (st.done.length < DAILY_TASKS.length) throw new HttpError(409, 'Finish all 3 tasks first');
+  if (st.bonusGot) throw new HttpError(409, 'Bonus already collected today');
+  const coins = DAILY_TASKS_BONUS.coins * (double ? 2 : 1);
+  const gemCount = double ? 2 : 1;
+  const adGem = double ? registerAd(p, now) : null;
+  earn(p, coins);
+  addGem(p, DAILY_TASKS_BONUS.gem, gemCount);
+  p.claimed = { ...p.claimed, dt: { d: day(now), done: st.done, bonus: true } };
+  return { player: p, result: { coins, gem: DAILY_TASKS_BONUS.gem, gemCount, doubled: double, adGem } };
 }
 
 export function taskList(p: Player, channelUrl: string | null) {
@@ -306,6 +314,7 @@ export function view(p: Player, now: number) {
     dailyTasks: {
       done: dailyTaskState(p, now).done,
       bonusGot: dailyTaskState(p, now).bonusGot,
+      bonusReady: dailyTaskState(p, now).done.length >= DAILY_TASKS.length && !dailyTaskState(p, now).bonusGot,
       rows: DAILY_TASKS.map((x) => ({ slot: x.slot, network: x.network, coins: x.coins, energy: x.energy })),
       bonus: DAILY_TASKS_BONUS,
     },

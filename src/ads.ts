@@ -61,16 +61,12 @@ const tadsReady = () => !!(w.tads && typeof w.tads.init === 'function');
 async function waitTads(): Promise<boolean> {
   for (let i = 0; i < 40 && !tadsReady(); i++) await sleep(50);
   if (tadsReady()) return true;
-  // The widget script from the dashboard did not define window.tads: try the documented widget script once.
-  if (!document.getElementById('tads-fallback')) {
-    const sc = document.createElement('script');
-    sc.id = 'tads-fallback';
-    sc.src = 'https://w.tads.me/widget.js';
-    document.head.appendChild(sc);
-  }
-  for (let i = 0; i < 60 && !tadsReady(); i++) await sleep(50);
-  return tadsReady();
+  return false;
 }
+// TADS fullscreen: showAd() asks for the ad and opens the overlay. A rejection or onAdsNotFound = no ad.
+// If nothing happened within 5 seconds, we treat it as "no ad" so the caller can fall back to Adsgram.
+const tadsOverlay = () =>
+  !!document.querySelector('iframe[src*="tads"], [id*="tads" i]:not(script), [class*="tads" i]:not(script)');
 async function showTads(): Promise<AdStatus> {
   if (!(await waitTads())) return 'unavailable';
   try {
@@ -87,16 +83,17 @@ async function showTads(): Promise<AdStatus> {
     }
     if (!tadsCtl || typeof tadsCtl.showAd !== 'function') return 'unavailable';
     const done = new Promise<AdStatus>((res) => (tadsResolve = res));
-    let early: AdStatus | null = null;
-    tadsCtl.showAd().catch(() => {
-      early = 'noad';
-      tadsResolve?.('noad');
-    });
-    // Within 5 seconds we learn whether TADS had an ad. After that the user is watching, so we wait for the reward callback.
+    let opened = false;
+    tadsCtl
+      .showAd()
+      .then(() => {
+        opened = true;
+      })
+      .catch(() => tadsResolve?.('noad'));
     const first = await withTimeout(done, START_TIMEOUT_MS);
     if (first !== 'timeout') return first;
-    if (early) return early;
-    const watched = await withTimeout(done, 180000);
+    if (!opened && !tadsOverlay()) return 'noad'; // nothing started in 5 seconds
+    const watched = await withTimeout(done, 180000); // the user is watching: wait for the reward callback
     return watched === 'timeout' ? 'skipped' : watched;
   } catch {
     return 'noad';

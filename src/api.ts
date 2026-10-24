@@ -16,7 +16,7 @@ export type State = {
   daily: { rewards: number[]; claimedToday: boolean; filled: number; next: number };
   ads: { left: number; used: number; perDay: number; nextAt: number; reward: number; gemSteps: Record<string, string> };
   gems: GemInfo[]; refCount: number; refReward: { inviter: number; invitee: number }; refSteps: RefStep[];
-  dailyTasks: { done: number[]; bonusGot: boolean; rows: { slot: number; network: 'adsgram' | 'monetag' | 'tads'; coins: number; energy: boolean }[]; bonus: { coins: number; gem: string } };
+  dailyTasks: { done: number[]; bonusGot: boolean; bonusReady: boolean; rows: { slot: number; network: 'adsgram' | 'monetag' | 'tads'; coins: number; energy: boolean }[]; bonus: { coins: number; gem: string } };
   tasks: TaskT[]; now: number; clientAt: number;
 };
 

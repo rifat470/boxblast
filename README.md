@@ -149,3 +149,14 @@ This endpoint checks your environment variables and Supabase connection, confirm
 ├── README_BN.md             # বাংলা সংস্করণ (Bengali setup documentation)
 └── README.md                # English setup documentation
 ```
+
+## v6 changes
+- TADS now loads the documented widget script (`https://w.tads.me/widget.js`). If TADS has no ad within 5 seconds, Adsgram is used.
+- "Join the channel" claim: the bot must be an ADMIN of the channel, and `CHANNEL_USERNAME` must be the channel name (with or without @).
+- Player avatar = the player's own Telegram photo (falls back to the first letter).
+- DAILY TASKS: each ad claims its own reward and the row becomes Done. After all 3, the bonus chest can be claimed normally or doubled with one optional ad.
+- Realistic gem artwork.
+
+## v7 changes
+- Box Designs panel uses the real artwork from the progression chart (`public/boxes/lv1.webp` .. `lv10.webp`); the lock sits below the picture and never covers it.
+- Ad rest time between ads is 35 seconds (`AD.cooldownS` in `api/_lib/config.ts`). Rewards are claimed automatically after the network confirms the ad.

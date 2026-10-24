@@ -4,6 +4,7 @@ import type { Ctx } from './App';
 import { LEVELS_CONFIG, getLevelConfig } from './theme';
 import { IconLock, IconBlast, IconBolt, IconUp, IconFriends } from './icons';
 import GemIcon from './GemIcon';
+import Avatar from './Avatar';
 
 type ProfileSubTab = 'profile' | 'howto' | 'privacy';
 
@@ -28,9 +29,8 @@ export default function Profile({ ctx }: ProfileProps) {
   // Safe level progress calculation
   const curLvl = s.level.lvl || 1;
   const curConfig = getLevelConfig(curLvl);
-  const nextConfig = curLvl < 10 ? getLevelConfig(curLvl + 1) : null;
-  const targetXp = nextConfig ? nextConfig.minXp : curConfig.maxXp;
-  const startXp = curConfig.minXp;
+  const targetXp = s.level.next ? s.level.next.at : s.level.at;
+  const startXp = s.level.at;
   const xpProgress = Math.max(0, Math.min(100, Math.round(((s.totalEarned - startXp) / Math.max(1, targetXp - startXp)) * 100)));
 
   return (
@@ -79,11 +79,8 @@ export default function Profile({ ctx }: ProfileProps) {
           <div className="bg-[#151b27] border border-white/10 rounded-2xl p-4 sm:p-5 shadow-lg flex flex-col gap-4">
             <div className="flex items-center gap-3.5 sm:gap-4">
               {/* Big 'M' Avatar with Golden Glow */}
-              <div
-                className="w-16 h-16 rounded-full bg-gradient-to-br from-amber-300 via-amber-400 to-amber-500 text-slate-950 text-2xl font-black flex items-center justify-center shadow-[0_0_20px_rgba(245,158,11,0.6)] border-2 border-amber-200/50 shrink-0"
-                aria-hidden="true"
-              >
-                {(s.name || 'M').slice(0, 1).toUpperCase()}
+              <div className="w-16 h-16 rounded-full overflow-hidden shadow-[0_0_20px_rgba(245,158,11,0.6)] border-2 border-amber-200/60 shrink-0 bg-gradient-to-br from-amber-300 via-amber-400 to-amber-500 text-slate-950 text-2xl font-black flex items-center justify-center">
+                <Avatar name={s.name || 'M'} size={64} />
               </div>
 
               <div className="flex flex-col min-w-0">
@@ -223,49 +220,42 @@ export default function Profile({ ctx }: ProfileProps) {
                     type="button"
                     disabled={!isUnlocked}
                     onClick={() => isUnlocked && equip(`lv${cfg.lvl}`)}
-                    className={`flex flex-col items-center justify-between p-3 rounded-xl border text-center transition-all min-h-[118px] relative ${
+                    className={`flex flex-col items-center p-2 rounded-xl border text-center transition-all relative ${
                       isEquipped
                         ? 'border-amber-400 bg-amber-500/15 shadow-[0_0_12px_rgba(245,158,11,0.35)] scale-102 ring-1 ring-amber-400/50'
                         : isUnlocked
                         ? 'border-slate-700 bg-slate-800/80 hover:border-slate-500 hover:bg-slate-700/80 cursor-pointer'
-                        : 'border-slate-800/80 bg-slate-900/50 opacity-60 cursor-not-allowed'
+                        : 'border-slate-800/80 bg-slate-900/50 cursor-not-allowed'
                     }`}
                   >
-                    {/* Visual Box Thumbnail */}
-                    <div
-                      className="w-11 h-11 rounded-lg flex items-center justify-center shadow-inner relative border"
+                    {/* Real box artwork. Never covered: the lock sits BELOW the picture, small. */}
+                    <img
+                      src={`/boxes/lv${cfg.lvl}.webp`}
+                      alt={`${cfg.name} box design`}
+                      loading="lazy"
+                      draggable={false}
+                      className="w-full aspect-square object-contain select-none"
                       style={{
-                        backgroundColor: cfg.boxBg,
-                        borderColor: isEquipped ? '#ffc107' : 'rgba(255,255,255,0.2)',
-                        boxShadow: `0 0 10px ${cfg.boxGlow}`,
+                        filter: isUnlocked ? 'none' : 'saturate(.55) brightness(.8)',
+                        transform: isEquipped ? 'scale(1.06)' : 'none',
+                        transition: 'transform .2s, filter .2s',
                       }}
-                    >
-                      {/* Box Tape / Detail Accent */}
-                      <div className="w-full h-1.5 bg-black/20 absolute" />
-                      <div className="h-full w-1.5 bg-black/20 absolute" />
-                      <span className="text-[10px] font-black text-white/90 drop-shadow">
-                        {cfg.lvl}
-                      </span>
+                    />
+
+                    <div className="text-xs font-bold text-white mt-1 truncate max-w-full">
+                      Lv{cfg.lvl} · {cfg.name}
                     </div>
 
-                    {/* Box Label */}
-                    <div className="text-xs font-bold text-white mt-1.5 truncate max-w-full">
-                      {cfg.name}
-                    </div>
-
-                    {/* Lock / Unlocked Status Badge */}
-                    <div className="mt-1">
+                    <div className="mt-1 h-[18px] flex items-center justify-center">
                       {isEquipped ? (
                         <span className="text-[10px] font-extrabold text-amber-300 bg-amber-500/20 px-1.5 py-0.5 rounded border border-amber-400/30">
                           In Use
                         </span>
                       ) : isUnlocked ? (
-                        <span className="text-[10px] font-bold text-emerald-400">
-                          Unlocked
-                        </span>
+                        <span className="text-[10px] font-bold text-emerald-400">Unlocked</span>
                       ) : (
-                        <span className="text-[10px] font-semibold text-slate-400 flex items-center gap-1">
-                          <IconLock /> Lv {cfg.lvl}
+                        <span className="text-[10px] font-semibold text-slate-400 flex items-center gap-1 [&_svg]:w-3 [&_svg]:h-3">
+                          <IconLock /> Locked
                         </span>
                       )}
                     </div>
@@ -413,10 +403,10 @@ export default function Profile({ ctx }: ProfileProps) {
                 </div>
                 <div>
                   <div className="text-sm font-black text-white flex items-center gap-2">
-                    <span className="text-amber-400">Step 5:</span> Invites, Daily Streaks & Tasks
+                    <span className="text-amber-400">Step 5:</span> Invites & Daily Streaks
                   </div>
                   <p className="text-xs text-slate-300 mt-1 mb-0 leading-relaxed">
-                    Claim your daily reward every day for a growing streak. Open Daily Tasks in the Earn tab: three optional ads a day give coins, a full energy refill and a bonus chest with a rare gem! Invite friends with your personal link: you both get coins, and invite milestones from 1 to 100 friends give bonus coins and rare gems.
+                    Open Daily Tasks in the Earn tab: three optional ads a day give coins, a full energy refill and a bonus gem. Claim your daily reward every day for a growing streak. An optional ad doubles it. Invite friends with your personal link: you both get coins, and invite milestones from 1 to 100 friends give bonus coins and rare gems. Watching 5 optional ads in a day gives a Sapphire, 10 ads give an Eternal Diamond.
                   </p>
                 </div>
               </div>

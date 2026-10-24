@@ -7,6 +7,7 @@ import Earn from './Earn';
 import Friends from './Friends';
 import Profile from './Profile';
 import GemIcon from './GemIcon';
+import Avatar from './Avatar';
 import { applyTheme, getLevelConfig } from './theme';
 import { IconBlast, IconEarn, IconFriends, IconProfile, IconUp } from './icons';
 import ParticleBackground from './ParticleBackground';
@@ -31,6 +32,7 @@ export type AdKind = 'coins' | 'energy' | 'daily';
 // Which network goes first for each button; the next one is used only if the first has no ad within 5 seconds.
 const ORDER: Record<AdKind, Net[]> = { energy: ['monetag', 'adsgram'], coins: ['adsgram', 'monetag'], daily: ['tads', 'adsgram'] };
 const TASK_ORDER: Record<number, Net[]> = { 1: ['adsgram'], 2: ['monetag', 'adsgram'], 3: ['tads', 'adsgram'] };
+const BONUS_ORDER: Net[] = ['adsgram', 'monetag'];
 export type Ctx = {
   s: State;
   nowMs: number;
@@ -40,6 +42,7 @@ export type Ctx = {
   adBusy: boolean;
   showGem: (id: string) => void;
   dailyTask: (slot: number) => Promise<void>;
+  dailyBonus: (double: boolean) => Promise<void>;
 };
 
 export default function App() {
@@ -236,9 +239,41 @@ export default function App() {
       put(res.state);
       celebrate();
       const x = res.result;
-      flash(`Task ${slot}/3 done: +${fmt(x.coins)} coins${x.energy ? ' and full energy' : ''}`);
-      if (x.bonus) setTimeout(() => showGem(x.bonusGem), 700);
-      else if (x.gem) setTimeout(() => showGem(x.gem), 700);
+      flash(`Task ${slot}/3 done: +${fmt(x.coins)} coins${x.energy ? ' and full energy' : ''}${x.allDone ? '. Now open your bonus chest!' : ''}`);
+      if (x.gem) setTimeout(() => showGem(x.gem), 700);
+    } catch (e: any) {
+      adErr(e);
+    } finally {
+      setAdBusy(false);
+    }
+  };
+
+  // "Finish all 3 tasks" chest: normal claim, or one optional ad doubles the coins and the gem.
+  const dailyBonus = async (double: boolean) => {
+    if (adBusy || !s) return;
+    setAdBusy(true);
+    try {
+      if (!double) {
+        const r = await act('dailyBonus', { double: false });
+        if (r) {
+          celebrate();
+          flash(`Bonus chest: +${fmt(r.result.coins)} coins`);
+          setTimeout(() => showGem(r.result.gem), 500);
+        }
+        return;
+      }
+      if (s.ads.left <= 0) return flash('Daily ad limit reached. Come back tomorrow.');
+      sound.playTap();
+      const r = await watchAd(BONUS_ORDER, 'task_bonus');
+      if (r.status === 'unavailable' || r.status === 'noad') return flash(NOAD);
+      if (r.status === 'skipped') return flash('Watch the full ad to double the bonus.');
+      await flushAll();
+      const res = await confirmed((net) => call('dailyBonus', { double: true, network: net }), r.network);
+      if (!res) return;
+      put(res.state);
+      celebrate();
+      flash(`Bonus chest doubled: +${fmt(res.result.coins)} coins and ${res.result.gemCount} gems`);
+      setTimeout(() => showGem(res.result.gem), 500);
     } catch (e: any) {
       adErr(e);
     } finally {
@@ -298,7 +333,7 @@ export default function App() {
     : 100;
   const skinLvl = Math.min(lvl, Math.max(1, Number(/^lv(\d+)$/.exec(s.skin)?.[1] || lvl)));
 
-  const ctx: Ctx = { s, nowMs, act, flash, adFor, adBusy, showGem, dailyTask };
+  const ctx: Ctx = { s, nowMs, act, flash, adFor, adBusy, showGem, dailyTask, dailyBonus };
 
   return (
     <div className="relative min-h-screen text-[#f4efe6] overflow-x-hidden">
@@ -307,7 +342,7 @@ export default function App() {
       <div className="app">
         <header className="top" role="banner">
           <div className="who">
-            <span className="avatar" aria-hidden="true">{(s.name || 'P').slice(0, 1).toUpperCase()}</span>
+            <Avatar name={s.name} className="avatar" />
             <div>
               <b className="mark">{s.name || 'Player'}</b>
               <div className="sub">Lv {lvl} · {curCfg.name} · +{fmt(s.pph)} / hour</div>
