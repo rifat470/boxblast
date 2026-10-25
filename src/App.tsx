@@ -23,7 +23,7 @@ const TABS: [Tab, string, () => JSX.Element][] = [
 ];
 
 // One entry per TAP. Every tap (hit or miss) costs 1 energy; only hits earn coins.
-type B = { hit: boolean; perfect: boolean; pts: number };
+type B = { hit: boolean; perfect: boolean; pts: number; free?: boolean };
 const sum = (a: B[]) => a.reduce((s, b) => s + b.pts, 0);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const BOT_LINK: string = String((import.meta as any).env?.VITE_BOT_LINK || '').trim();
@@ -40,9 +40,10 @@ export type Ctx = {
   flash: (m: string) => void;
   adFor: (kind: AdKind) => Promise<void>;
   adBusy: boolean;
-  showGem: (id: string) => void;
+  showGem: (id: string, n?: number) => void;
   dailyTask: (slot: number) => Promise<void>;
   dailyBonus: (double: boolean) => Promise<void>;
+  turbo: () => Promise<void>;
 };
 
 export default function App() {
@@ -55,9 +56,11 @@ export default function App() {
   const [nowMs, setNowMs] = useState(Date.now());
   const [adBusy, setAdBusy] = useState(false);
   const [lvlUp, setLvlUp] = useState<number | null>(null);
-  const [gemWin, setGemWin] = useState<string | null>(null);
+  const [gemQ, setGemQ] = useState<{ id: string; n: number }[]>([]);
+  const gemWin = gemQ[0]?.id || null;
+  const gemWinN = gemQ[0]?.n || 1;
   const [coinPillBump, setCoinPillBump] = useState(false);
-  const [away, setAway] = useState(0);
+  const [offOpen, setOffOpen] = useState(true);
 
   const q = useRef<B[]>([]);
   const inflight = useRef<B[]>([]);
@@ -74,7 +77,10 @@ export default function App() {
   };
 
   const updPend = () =>
-    setPend({ coins: sum(q.current) + sum(inflight.current), n: q.current.length + inflight.current.length });
+    setPend({
+      coins: sum(q.current) + sum(inflight.current),
+      n: q.current.filter((b) => !b.free).length + inflight.current.filter((b) => !b.free).length,
+    });
 
   const flush = (): Promise<void> => {
     if (flying.current) return flying.current;
@@ -101,8 +107,11 @@ export default function App() {
     for (let i = 0; i < 6 && (q.current.length || flying.current); i++) await flush();
   };
 
+  const turboRef = useRef(0);
   const onTap = (hit: boolean, perfect: boolean, pts: number) => {
-    q.current.push({ hit, perfect, pts: hit ? pts : 0 });
+    const free = Date.now() < turboRef.current; // Turbo Blast: taps cost no energy and pay x3
+    const mult = free ? s?.turbo.mult || 3 : 1;
+    q.current.push({ hit, perfect, pts: hit ? pts * mult : 0, free });
     updPend();
     if (q.current.length >= 8) void flush();
   };
@@ -110,10 +119,7 @@ export default function App() {
   const loadGame = () => {
     setLoadErr('');
     call('init')
-      .then((r) => {
-        put(r.state);
-        if (r.away >= 20) setAway(r.away);
-      })
+      .then((r) => put(r.state))
       .catch((e: any) => setLoadErr(e?.message || 'Could not load the game'));
   };
 
@@ -155,8 +161,8 @@ export default function App() {
     lastLvl.current = s.level.lvl;
   }, [s?.level.lvl]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const showGem = (id: string) => {
-    setGemWin(id);
+  const showGem = (id: string, n = 1) => {
+    setGemQ((q0) => [...q0, { id, n }]);
     sound.playLevelUp();
     triggerConfetti(window.innerWidth / 2, 200, ['#ffffff', '#8fd0ff', '#ffc93c', '#c084fc']);
   };
@@ -214,8 +220,8 @@ export default function App() {
       celebrate();
       if (kind === 'energy') flash('⚡ Energy fully refilled!');
       else if (kind === 'daily') flash(`Daily reward doubled: +${fmt(res.result.reward)} coins`);
-      else flash(`+${fmt(res.state.ads.reward)} bonus coins`);
-      if (res.result?.gem) setTimeout(() => showGem(res.result.gem), 500);
+      else flash(`Special bonus: +${fmt(res.result.coins)} coins and a gem!`);
+      (res.result?.gems || (res.result?.gem ? [res.result.gem] : [])).forEach((g: string, i: number) => setTimeout(() => showGem(g), 500 + i * 100));
     } catch (e: any) {
       adErr(e);
     } finally {
@@ -239,7 +245,7 @@ export default function App() {
       put(res.state);
       celebrate();
       const x = res.result;
-      flash(`Task ${slot}/3 done: +${fmt(x.coins)} coins${x.energy ? ' and full energy' : ''}${x.allDone ? '. Now open your bonus chest!' : ''}`);
+      flash(`Task ${slot}/3 done: +${fmt(x.coins)} coins${x.energy ? ' and full energy' : ''}. Next one in 3 hours.${x.allDone ? ' Bonus chest is ready!' : ''}`);
       if (x.gem) setTimeout(() => showGem(x.gem), 700);
     } catch (e: any) {
       adErr(e);
@@ -273,12 +279,81 @@ export default function App() {
       put(res.state);
       celebrate();
       flash(`Bonus chest doubled: +${fmt(res.result.coins)} coins and ${res.result.gemCount} gems`);
-      setTimeout(() => showGem(res.result.gem), 500);
+      setTimeout(() => showGem(res.result.gem, res.result.gemCount || 1), 500);
     } catch (e: any) {
       adErr(e);
     } finally {
       setAdBusy(false);
     }
+  };
+
+  // Turbo Blast: one optional ad = 60 seconds of x3 coins with free taps.
+  const turbo = async () => {
+    if (adBusy || !s) return;
+    if (s.ads.left <= 0) return flash('Daily ad limit reached. Come back tomorrow.');
+    setAdBusy(true);
+    try {
+      sound.playTap();
+      const r = await watchAd(['adsgram', 'monetag'], 'turbo');
+      if (r.status === 'unavailable' || r.status === 'noad') return flash(NOAD);
+      if (r.status === 'skipped') return flash('Watch the full ad to start Turbo Blast.');
+      await flushAll();
+      const res = await confirmed((net) => call('turbo', { network: net }), r.network);
+      if (!res) return;
+      put(res.state);
+      celebrate();
+      flash(`⚡ Turbo Blast! x${res.state.turbo.mult} coins and free taps for ${res.state.turbo.seconds}s`);
+      if (res.result?.gem) setTimeout(() => showGem(res.result.gem), 600);
+    } catch (e: any) {
+      adErr(e);
+    } finally {
+      setAdBusy(false);
+    }
+  };
+
+  // Offline earnings: 50% for free, 100% after one optional ad. Level reward: normal, or x2 after one optional ad.
+  const adClaim = async (action: 'claimOffline' | 'claimLevel', extra: object, okMsg: (r: any) => string) => {
+    if (adBusy || !s) return;
+    setAdBusy(true);
+    try {
+      if (s.ads.left <= 0) return flash('Daily ad limit reached. Come back tomorrow.');
+      sound.playTap();
+      const r = await watchAd(['adsgram', 'monetag'], action);
+      if (r.status === 'unavailable' || r.status === 'noad') return flash(NOAD);
+      if (r.status === 'skipped') return flash('Watch the full ad to get the full reward.');
+      await flushAll();
+      const res = await confirmed((net) => call(action, { ...extra, double: true, network: net }), r.network);
+      if (!res) return;
+      put(res.state);
+      celebrate();
+      flash(okMsg(res));
+      if (res.result?.gem) setTimeout(() => showGem(res.result.gem), 600);
+    } catch (e: any) {
+      adErr(e);
+    } finally {
+      setAdBusy(false);
+    }
+  };
+  const claimOffline = async (double: boolean) => {
+    if (!double) {
+      const r = await act('claimOffline', { double: false });
+      if (r) {
+        flash(`+${fmt(r.result.reward)} coins collected`);
+        sound.playLevelUp();
+      }
+      return;
+    }
+    await adClaim('claimOffline', {}, (r) => `+${fmt(r.result.reward)} coins collected (full amount)`);
+  };
+  const claimLevelBonus = async (lvlN: number, double: boolean) => {
+    if (!double) {
+      const r = await act('claimLevel', { lvl: lvlN });
+      if (r) flash(`Level ${lvlN} reward +${fmt(r.result.reward)}`);
+      setLvlUp(null);
+      return;
+    }
+    await adClaim('claimLevel', { lvl: lvlN }, (r) => `Level reward doubled: +${fmt(r.result.reward)}`);
+    setLvlUp(null);
   };
 
   // ---------- Not inside Telegram ----------
@@ -333,7 +408,8 @@ export default function App() {
     : 100;
   const skinLvl = Math.min(lvl, Math.max(1, Number(/^lv(\d+)$/.exec(s.skin)?.[1] || lvl)));
 
-  const ctx: Ctx = { s, nowMs, act, flash, adFor, adBusy, showGem, dailyTask, dailyBonus };
+  turboRef.current = s.turbo.until;
+  const ctx: Ctx = { s, nowMs, act, flash, adFor, adBusy, showGem, dailyTask, dailyBonus, turbo };
 
   return (
     <div className="relative min-h-screen text-[#f4efe6] overflow-x-hidden">
@@ -382,14 +458,24 @@ export default function App() {
               }}
             />
           )}
+          {tab === 'play' && s.offline.pending >= 20 && !offOpen && (
+            <button className="dt-teaser" onClick={() => setOffOpen(true)}>
+              <span className="dt-teaser-ico" aria-hidden="true">🏭</span>
+              <span className="dt-teaser-txt">
+                <b>{fmt(s.offline.pending)} offline coins waiting</b>
+                <small>Tap to claim. An optional ad gives the full amount.</small>
+              </span>
+              <span className="dt-teaser-go">›</span>
+            </button>
+          )}
           {tab === 'play' && (
             <button className="dt-teaser" onClick={() => setTab('earn')}>
               <span className="dt-teaser-ico" aria-hidden="true">🎁</span>
               <span className="dt-teaser-txt">
-                <b>Daily tasks {s.dailyTasks.done.length}/{s.dailyTasks.rows.length}</b>
+                <b>Daily tasks {s.dailyTasks.rows.filter((r) => r.until > nowMs).length}/{s.dailyTasks.rows.length}</b>
                 <small>
-                  {s.dailyTasks.done.length >= s.dailyTasks.rows.length
-                    ? 'All done today. See you tomorrow!'
+                  {s.dailyTasks.rows.every((r) => r.until > nowMs)
+                    ? (s.dailyTasks.bonusReady ? 'Your bonus chest is ready!' : 'All waiting. New tasks soon!')
                     : `Earn up to ${fmt(s.dailyTasks.rows.reduce((a, r) => a + r.coins, 0) + s.dailyTasks.bonus.coins)} coins + a gem`}
                 </small>
               </span>
@@ -412,39 +498,78 @@ export default function App() {
               <p className="text-sm text-slate-400 mt-2">
                 You unlocked the <b className="text-amber-400">{getLevelConfig(lvlUp).rank}</b> box design. Claim your level reward in Profile.
               </p>
-              <div className="stack">
-                <button className="btn" onClick={() => { setLvlUp(null); setTab('profile'); }}>Go to rewards</button>
-                <button className="btn ghost" onClick={() => setLvlUp(null)}>Continue</button>
-              </div>
+              {(() => {
+                const L = s.levels.find((x) => x.lvl === lvlUp);
+                const can = !!L && L.reached && !L.claimed && L.reward > 0;
+                return (
+                  <div className="stack">
+                    {can && (
+                      <>
+                        <button className="btn" disabled={adBusy} onClick={() => claimLevelBonus(lvlUp, false)}>
+                          Claim +{fmt(L!.reward)} coins
+                        </button>
+                        <button className="btn gold" disabled={adBusy || s.ads.left <= 0 || nowMs < s.ads.nextAt} onClick={() => claimLevelBonus(lvlUp, true)}>
+                          {nowMs < s.ads.nextAt ? `Ad ready in ${Math.ceil((s.ads.nextAt - nowMs) / 1000)}s` : `Watch ad · Claim ×2 (+${fmt(L!.reward * 2)})`}
+                          <em className="ad-pill">AD</em>
+                        </button>
+                      </>
+                    )}
+                    <button className="btn ghost" onClick={() => setLvlUp(null)}>{can ? 'Later' : 'Continue'}</button>
+                  </div>
+                );
+              })()}
             </div>
           </div>
         )}
 
-        {away > 0 && (
+        {s.offline.pending >= 20 && offOpen && (
           <div className="modal" role="dialog" aria-modal="true">
             <div className="card gem-card">
               <div className="away-ico" aria-hidden="true">🏭</div>
               <h2 className="text-2xl font-black text-white">Welcome back!</h2>
               <p className="text-sm text-slate-300 mt-2">
-                Your warehouse kept working while you were away and earned <b className="text-amber-300">+{fmt(away)} coins</b>.
+                Your warehouse kept working while you were away and earned <b className="text-amber-300">{fmt(s.offline.pending)} coins</b>.
               </p>
               <div className="stack">
-                <button className="btn" onClick={() => { setAway(0); sound.playLevelUp(); }}>Collect</button>
+                <button className="btn" disabled={adBusy} onClick={() => claimOffline(false)}>
+                  Claim {fmt(Math.floor(s.offline.pending * s.offline.freeRatio))} coins
+                </button>
+                <button className="btn gold" disabled={adBusy || s.ads.left <= 0 || nowMs < s.ads.nextAt} onClick={() => claimOffline(true)}>
+                  {nowMs < s.ads.nextAt ? `Ad ready in ${Math.ceil((s.ads.nextAt - nowMs) / 1000)}s` : `Watch ad · Claim all ${fmt(s.offline.pending)}`}
+                  <em className="ad-pill">AD</em>
+                </button>
+                <button className="btn ghost" onClick={() => setOffOpen(false)}>Later</button>
               </div>
+              <p className="small muted" style={{ marginTop: 10 }}>The ad is optional.</p>
             </div>
           </div>
         )}
 
         {gemWin && (
           <div className="modal" role="dialog" aria-modal="true">
-            <div className="card gem-card">
-              <div className="gem-pop"><GemIcon id={gemWin} size={110} /></div>
-              <h2 className="text-2xl font-black text-white">New gem!</h2>
-              <p className="text-sm text-slate-300 mt-2">
-                <b className="text-amber-300">{s.gems.find((g) => g.id === gemWin)?.name}</b> was added to your collection in Profile.
+            <div className="card gem-card" data-testid="gem-popup">
+              <div className="dep-head">
+                <span aria-hidden="true">👛</span>
+                <div>
+                  <b>Wallet Deposit</b>
+                  <small>Your gem has been deposited!</small>
+                </div>
+              </div>
+              <div className="gem-pop"><GemIcon id={gemWin} size={230} variant="pop" /></div>
+              <h2 className="text-2xl font-black text-white">+{gemWinN} {s.gems.find((g) => g.id === gemWin)?.name}</h2>
+              <div className="dep-ok">
+                <span aria-hidden="true">✔</span>
+                <div>
+                  <b>Deposit Success</b>
+                  <small>Your wallet balance has been updated.</small>
+                </div>
+              </div>
+              <p className="dep-bal">
+                {s.gems.find((g) => g.id === gemWin)?.name}: <b>{s.gems.find((g) => g.id === gemWin)?.count}</b> · Total Gems:{' '}
+                <b>{s.gems.reduce((a, g) => a + g.count, 0)}</b>
               </p>
               <div className="stack">
-                <button className="btn" onClick={() => setGemWin(null)}>Awesome</button>
+                <button className="btn" onClick={() => setGemQ((q0) => q0.slice(1))}>Awesome</button>
               </div>
             </div>
           </div>

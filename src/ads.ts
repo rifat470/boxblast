@@ -63,8 +63,11 @@ async function waitTads(): Promise<boolean> {
   if (tadsReady()) return true;
   return false;
 }
-// TADS fullscreen: showAd() asks for the ad and opens the overlay. A rejection or onAdsNotFound = no ad.
-// If nothing happened within 5 seconds, we treat it as "no ad" so the caller can fall back to Adsgram.
+// TADS fullscreen: showAd() asks for the ad and opens the overlay.
+//  - rejection / onAdsNotFound            = no ad            -> caller may fall back (Adsgram)
+//  - nothing started within 5 seconds      = no ad            -> caller may fall back (Adsgram)
+//  - onShowReward callback                 = watched fully    -> reward
+//  - overlay appeared and then vanished with no reward = closed early -> no reward, no fallback
 const tadsOverlay = () =>
   !!document.querySelector('iframe[src*="tads"], [id*="tads" i]:not(script), [class*="tads" i]:not(script)');
 async function showTads(): Promise<AdStatus> {
@@ -90,11 +93,22 @@ async function showTads(): Promise<AdStatus> {
         opened = true;
       })
       .catch(() => tadsResolve?.('noad'));
-    const first = await withTimeout(done, START_TIMEOUT_MS);
-    if (first !== 'timeout') return first;
-    if (!opened && !tadsOverlay()) return 'noad'; // nothing started in 5 seconds
-    const watched = await withTimeout(done, 180000); // the user is watching: wait for the reward callback
-    return watched === 'timeout' ? 'skipped' : watched;
+    const t0 = Date.now();
+    const watcher = (async (): Promise<AdStatus> => {
+      let seen = false;
+      let gone = 0;
+      while (tadsResolve) {
+        await sleep(250);
+        if (tadsOverlay()) {
+          seen = true;
+          gone = 0;
+        } else if (seen && ++gone >= 3) return 'skipped'; // the ad screen closed without the reward callback
+        if (!seen && !opened && Date.now() - t0 >= START_TIMEOUT_MS) return 'noad'; // nothing started in 5 seconds
+        if (Date.now() - t0 > 120000) return 'skipped';
+      }
+      return 'skipped';
+    })();
+    return await Promise.race([done, watcher]);
   } catch {
     return 'noad';
   } finally {
@@ -102,10 +116,13 @@ async function showTads(): Promise<AdStatus> {
   }
 }
 
+// Safety net: no matter what an ad network does, the app is never stuck waiting longer than this.
+const WATCHDOG_MS = 4 * 60 * 1000;
+
 async function run(net: Net, placement: string): Promise<AdStatus> {
-  if (net === 'adsgram') return showAdsgram();
-  if (net === 'monetag') return showMonetag(placement);
-  return showTads();
+  const job = net === 'adsgram' ? showAdsgram() : net === 'monetag' ? showMonetag(placement) : showTads();
+  const r = await withTimeout(job, WATCHDOG_MS);
+  return r === 'timeout' ? 'skipped' : r;
 }
 
 /**

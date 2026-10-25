@@ -156,14 +156,34 @@ export default function Profile({ ctx }: ProfileProps) {
                 {s.gems.reduce((a, g) => a + g.count, 0)} gems
               </span>
             </div>
-            <div className="grid grid-cols-3 gap-2.5">
+            <div className="gem-grid" data-testid="gem-grid">
               {s.gems.map((g) => (
-                <div key={g.id} className={'gem-slot' + (g.count > 0 ? ' own' : '')}>
-                  <GemIcon id={g.id} size={46} dim={g.count === 0} />
-                  <b>{g.name}</b>
-                  <small>{g.count > 0 ? `x${g.count}` : 'Not yet'}</small>
+                <div key={g.id} className={'gem-tile' + (g.count > 0 ? ' own' : '')} data-gem={g.id} data-count={g.count}>
+                  <GemIcon id={g.id} size={170} variant="tile" dim={g.count === 0} />
+                  <span className="gem-count">{g.count > 0 ? `x${g.count}` : 'Not yet'}</span>
                 </div>
               ))}
+            </div>
+            {/* Wallet: every gem you earn is deposited here */}
+            <div className="wallet" data-testid="wallet">
+              <div className="wallet-head">
+                <span className="wallet-ico" aria-hidden="true">👛</span>
+                <div>
+                  <b>Wallet Balance</b>
+                  <small>Gems are deposited here automatically</small>
+                </div>
+              </div>
+              {s.gems.map((g) => (
+                <div key={g.id} className="wallet-row">
+                  <GemIcon id={g.id} size={26} dim={g.count === 0} />
+                  <span>{g.name}</span>
+                  <b>{g.count}</b>
+                </div>
+              ))}
+              <div className="wallet-total">
+                <span>Total Gems</span>
+                <b data-testid="gem-total">{s.gems.reduce((a, g) => a + g.count, 0)}</b>
+              </div>
             </div>
             <p className="text-[11px] text-slate-400 m-0 leading-relaxed">
               Earn gems by inviting friends (Friends tab) and by watching optional ads (Earn tab). Gems are collectibles and have no cash value.
@@ -208,7 +228,7 @@ export default function Profile({ ctx }: ProfileProps) {
             </div>
 
             {/* Grid 5 columns on desktop, 3 columns on mobile, gap-4 */}
-            <div className="grid grid-cols-3 md:grid-cols-5 gap-3 sm:gap-4 pt-1">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 sm:gap-4 pt-1">
               {LEVELS_CONFIG.map((cfg) => {
                 const skinData = s.skins.find((sk) => sk.level === cfg.lvl);
                 const isUnlocked = Boolean(skinData?.unlocked);
@@ -441,7 +461,7 @@ export default function Profile({ ctx }: ProfileProps) {
                 <b className="text-amber-400 text-sm font-bold">Privacy Statement</b>
               </div>
               <p className="m-0 text-slate-200 text-xs sm:text-sm leading-relaxed font-medium">
-                We never collect any personal data. This is a Telegram-based game where Telegram automatically sets your in-game name. We never ask for any private information. Just play regularly and collect points and gems. The more you collect, the more benefits and exciting surprises await you in future updates!
+                We do not ask for your phone number, email, real name or any private information. Telegram gives the game your public Telegram user ID, first name and username, and we store them together with your game progress (coins, levels, gems, invites) so that your account works. Just play, collect points and gems, and enjoy the surprises we add in future updates.
               </p>
             </div>
 
@@ -449,7 +469,7 @@ export default function Profile({ ctx }: ProfileProps) {
               <div className="bg-[#18202d] border border-white/5 rounded-xl p-3.5 flex flex-col gap-1.5">
                 <b className="text-white text-sm font-bold">1. Information We Collect</b>
                 <p className="m-0 text-slate-300">
-                  We never collect any personal data. This is a Telegram-based game where Telegram automatically sets your in-game name. We never ask for any private information.
+                  We do not ask for your phone number, email, real name or any private information. Telegram gives the game your public Telegram user ID, first name and username, and we store them together with your game progress (coins, levels, gems, invites) so that your account works.
                 </p>
               </div>
 
@@ -470,7 +490,7 @@ export default function Profile({ ctx }: ProfileProps) {
               <div className="bg-[#18202d] border border-white/5 rounded-xl p-3.5 flex flex-col gap-1.5">
                 <b className="text-white text-sm font-bold">4. Optional Advertising</b>
                 <p className="m-0 text-slate-300">
-                  Ads in BoxBlast are completely optional. When you choose to tap an ad button to refill energy or earn coins, our ad partner Adsgram receives your Telegram user ID to show the ad and confirm that it was watched.
+                  Ads in BoxBlast are completely optional. When you choose to tap an ad button to refill energy or earn coins, our ad partners (Adsgram, Monetag and TADS) receive your Telegram user ID to show the ad and confirm that it was watched.
                 </p>
               </div>
 

@@ -2,7 +2,7 @@ import { verifyInitData } from './_lib/auth.js';
 import { db, getPlayer, HttpError, mutate, type Player } from './_lib/db.js';
 import { AD, REF, TASKS, levelOf } from './_lib/config.js';
 import {
-  blast, buyBoost, buyCard, checkAdAllowed, claimDaily, claimDailyBonus, claimDailyTask, claimLevel, claimRef, claimTask, grantAd, newPlayer, setSkin, settle, view,
+  blast, buyBoost, buyCard, checkAdAllowed, claimDaily, claimDailyBonus, claimDailyTask, claimLevel, claimOffline, grantTurbo, claimRef, claimTask, grantAd, newPlayer, setSkin, settle, view,
 } from './_lib/game.js';
 
 const bad = (m: string) => new HttpError(400, m);
@@ -48,6 +48,18 @@ async function consumeAdConfirmation(id: number, now: number, network = 'adsgram
   return !!upd?.length;
 }
 
+// One confirmed ad is needed. `pre` dry-runs the claim first, so an ad is never used up when the claim would fail.
+async function adGate(id: number, now: number, network: any, pre?: (st: any) => unknown) {
+  const cur = await getPlayer(id);
+  if (!cur) throw new HttpError(404, 'Player not found');
+  const st = settle(cur, now);
+  checkAdAllowed(st, now);
+  if (pre) pre(st);
+  if (!(await consumeAdConfirmation(id, now, netOf(network)))) throw new HttpError(409, 'ad_not_confirmed');
+}
+
+const copyP = (st: any) => ({ ...st, claimed: { ...st.claimed }, gems: { ...(st.gems || {}) } });
+
 const netOf = (n: any) => (['adsgram', 'monetag', 'tads'].includes(String(n)) ? String(n) : 'adsgram');
 
 async function init(auth: { user: any; startParam: string }, now: number) {
@@ -83,15 +95,13 @@ async function init(auth: { user: any; startParam: string }, now: number) {
       }
     }
   }
-  let away = 0;
   const out = await mutate(user.id, (cur) => {
     const s = settle(cur, now);
-    away = Math.max(0, s.coins - cur.coins);
     s.first_name = (user.first_name || s.first_name || 'Player').slice(0, 40);
     s.username = user.username ? String(user.username).slice(0, 40) : null;
     return { player: s };
   });
-  return { state: view(out.player, now), away };
+  return { state: view(out.player, now) };
 }
 
 async function route(auth: { user: any; startParam: string }, body: any) {
@@ -115,8 +125,21 @@ async function route(auth: { user: any; startParam: string }, body: any) {
       return act((s) => buyCard(s, String(body.id)));
     case 'buyBoost':
       return act((s) => buyBoost(s, String(body.id)));
-    case 'claimLevel':
-      return act((s) => claimLevel(s, Number(body.lvl), now));
+    case 'claimLevel': {
+      const lvl = Number(body.lvl);
+      if (!body.double) return act((s) => claimLevel(s, lvl, now, false));
+      await adGate(id, now, body.network, (st) => claimLevel({ ...st, claimed: { ...st.claimed } }, lvl, now, false));
+      return act((s) => claimLevel(s, lvl, now, true));
+    }
+    case 'claimOffline': {
+      if (!body.double) return act((s) => claimOffline(s, false, now));
+      await adGate(id, now, body.network, (st) => claimOffline({ ...st, claimed: { ...st.claimed } }, false, now));
+      return act((s) => claimOffline(s, true, now));
+    }
+    case 'turbo': {
+      await adGate(id, now, body.network);
+      return act((s) => grantTurbo(s, now));
+    }
     case 'setSkin':
       return act((s) => setSkin(s, String(body.id)));
     case 'claimDaily': {
@@ -142,31 +165,18 @@ async function route(auth: { user: any; startParam: string }, body: any) {
     }
     case 'adClaim': {
       const kind = body.kind === 'energy' ? 'energy' : 'coins';
-      const cur = await getPlayer(id);
-      if (!cur) throw new HttpError(404, 'Player not found');
-      checkAdAllowed(settle(cur, now), now);
-      const net = netOf(body.network);
-      if (!(await consumeAdConfirmation(id, now, net))) throw new HttpError(409, 'ad_not_confirmed');
+      await adGate(id, now, body.network, (st) => grantAd(copyP(st), kind, now)); // dry run: never use up an ad if the bonus is already taken
       return act((s) => grantAd(s, kind, now));
     }
     case 'dailyBonus': {
       if (!body.double) return act((s) => claimDailyBonus(s, false, now));
-      const net = netOf(body.network);
-      const cur = await getPlayer(id);
-      if (!cur) throw new HttpError(404, 'Player not found');
-      const st = settle(cur, now);
-      checkAdAllowed(st, now);
-      if (!(await consumeAdConfirmation(id, now, net))) throw new HttpError(409, 'ad_not_confirmed');
+      await adGate(id, now, body.network, (st) => claimDailyBonus(copyP(st), false, now));
       return act((s) => claimDailyBonus(s, true, now));
     }
     case 'dailyTask': {
       const slot = Number(body.slot);
       const net = netOf(body.network);
-      const cur = await getPlayer(id);
-      if (!cur) throw new HttpError(404, 'Player not found');
-      const st = settle(cur, now);
-      checkAdAllowed(st, now);
-      if (!(await consumeAdConfirmation(id, now, net))) throw new HttpError(409, 'ad_not_confirmed');
+      await adGate(id, now, net, (st) => claimDailyTask(copyP(st), slot, net, now));
       return act((s) => claimDailyTask(s, slot, net, now));
     }
     case 'leaderboard': {

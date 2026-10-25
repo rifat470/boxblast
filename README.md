@@ -160,3 +160,34 @@ This endpoint checks your environment variables and Supabase connection, confirm
 ## v7 changes
 - Box Designs panel uses the real artwork from the progression chart (`public/boxes/lv1.webp` .. `lv10.webp`); the lock sits below the picture and never covers it.
 - Ad rest time between ads is 35 seconds (`AD.cooldownS` in `api/_lib/config.ts`). Rewards are claimed automatically after the network confirms the ad.
+
+## v8 changes (no new SQL)
+- Offline earnings: when a player was away more than 10 minutes, income waits in a pool (max 3 hours). Claim = 50% free, or 100% after one optional ad.
+- Turbo Blast: one optional ad = 60 seconds of x3 coins and free taps.
+- Level-up: the level reward can be doubled with one optional ad.
+- Hit coins raised a little (2-10 per hit, 20 for a golden box, +3 perfect). Daily ad cap is 30, 35 seconds between ads. All numbers live in `api/_lib/config.ts` (AD, OFFLINE, TURBO) and `api/_lib/game.ts`.
+
+## v9 changes (no new SQL)
+- Ads: a reward is paid ONLY after the ad network confirms the full view. If the user closes the ad early there is no reward and no ad is counted; the ad has to be watched again. Ads can be 10 or 30 seconds long, nothing is timed on our side (a 4-minute safety watchdog frees the app if a network never answers).
+- Daily Tasks: after an ad is finished the row waits 3 hours (`DAILY_TASK_COOLDOWN_S`). When all 3 rows are waiting together, the bonus chest opens (once per UTC day, x2 with one optional ad).
+- Special "Bonus coins" ad: 5,000 coins + a Sapphire, once per day (`BONUS_AD` in `api/_lib/config.ts`; raise `perDay` to allow more).
+
+## v9 changes (no new SQL)
+- Ads: an ad that is closed early gives no reward and does not count; the player must watch it again. Rewards are only paid after the ad network's own server confirmation.
+- Daily Tasks: after a row's ad is finished the row waits 3 hours (`DAILY_TASK_COOLDOWN_S` in `api/_lib/config.ts`). When all three rows are waiting at the same time, the "Finish all 3 tasks" chest can be collected once per UTC day (optional ad doubles it).
+- Bonus coins special ad: +5,000 coins and a Sapphire, once a day (`BONUS_AD` in `api/_lib/config.ts`).
+- Visual polish (animations, button feedback, special cards).
+
+## v10 changes (no new SQL)
+- Gems use your real artwork (`public/gems/*.webp`, about 240 KB in total): collection tiles, wallet list, deposit popup, ladder and daily goals.
+- Wallet: Profile shows Wallet Balance and Total Gems. Every gem you earn opens a "Wallet Deposit / Deposit Success" popup with the real amount (+2 for a doubled chest).
+- Bug fixed: the "Join the channel" task could never be claimed (the server always answered "Not completed yet"). Now it is verified with Telegram and paid. The bot must be an admin of the channel.
+- TADS: if the ad screen is closed early, no reward and the app is not stuck.
+- Tested against the real code: 73 server checks and 38 browser checks (all passed).
+
+## v10 changes (no new SQL)
+- Gem artwork: your six gems are used everywhere (`public/gems/*.webp`, about 240 KB in total): Gem Collection, Wallet, deposit popup, ladder, goals, chest.
+- Wallet: Profile shows the wallet balance and Total Gems; every gem you earn opens a "Wallet Deposit" popup.
+- Fixed: the "Join the channel" task could never be claimed (server bug). The bot must still be an admin of the channel.
+- Fixed: a TADS ad closed early could keep the app waiting for minutes. Now an early close ends at once with no reward.
+- Tested with a real browser and the real server code: 38 app checks + 73 server checks.

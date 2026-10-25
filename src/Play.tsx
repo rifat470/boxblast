@@ -80,7 +80,7 @@ export default function Play({
     if (now - lastTap.current < 90) return;
     lastTap.current = now;
 
-    if (energyRef.current <= 0) {
+    if (energyRef.current <= 0 && Date.now() >= ctx.s.turbo.until) {
       sound.playMiss();
       ctx.flash(`Out of energy! +${regenPerTick} energy every ${regenEveryS}s, or watch an optional ad to refill.`);
       return;
@@ -137,7 +137,10 @@ export default function Play({
     }
   };
 
-  const out = energy <= 0;
+  const turboLeft = Math.max(0, Math.ceil((ctx.s.turbo.until - ctx.nowMs) / 1000));
+  const turboOn = turboLeft > 0;
+  const out = energy <= 0 && !turboOn;
+  const adWait = Math.max(0, Math.ceil((ctx.s.ads.nextAt - ctx.nowMs) / 1000));
   const canAd = ctx.s.ads.left > 0 && !ctx.adBusy && energy < maxEnergy && ctx.nowMs >= ctx.s.ads.nextAt;
 
   return (
@@ -231,6 +234,23 @@ export default function Play({
         </div>
       )}
 
+      {/* Turbo Blast: optional ad = 60 s of x3 coins and free taps */}
+      {turboOn ? (
+        <div className="turbo-banner" role="status">
+          <b>⚡ TURBO x{ctx.s.turbo.mult}</b>
+          <span>Free taps · {turboLeft}s left</span>
+        </div>
+      ) : (
+        <button
+          className="btn gold turbo-btn"
+          disabled={ctx.adBusy || ctx.s.ads.left <= 0 || adWait > 0}
+          onClick={() => ctx.turbo()}
+        >
+          ⚡ Turbo Blast: x{ctx.s.turbo.mult} coins, free taps for {ctx.s.turbo.seconds}s
+          <em className="ad-pill">AD</em>
+        </button>
+      )}
+
       {/* Ad Refill Button with Glow Border */}
       <button
         className="btn-ad-refill"
@@ -247,6 +267,8 @@ export default function Play({
         <span>
           {ctx.adBusy
             ? 'Loading ad…'
+            : adWait > 0 && ctx.s.ads.left > 0
+            ? `Next ad ready in ${adWait}s`
             : `Watch an ad to refill energy (${ctx.s.ads.left} left today)`}
         </span>
         <em className="ad-pill">AD</em>

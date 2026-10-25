@@ -15,8 +15,10 @@ export type State = {
   regenEveryS: number; regenPerTick: number; pph: number; tapLevel: number; boosts: Boost[]; cards: CardT[];
   daily: { rewards: number[]; claimedToday: boolean; filled: number; next: number };
   ads: { left: number; used: number; perDay: number; nextAt: number; reward: number; gemSteps: Record<string, string> };
+  offline: { pending: number; freeRatio: number }; turbo: { until: number; seconds: number; mult: number };
   gems: GemInfo[]; refCount: number; refReward: { inviter: number; invitee: number }; refSteps: RefStep[];
-  dailyTasks: { done: number[]; bonusGot: boolean; bonusReady: boolean; rows: { slot: number; network: 'adsgram' | 'monetag' | 'tads'; coins: number; energy: boolean }[]; bonus: { coins: number; gem: string } };
+  dailyTasks: { done: number[]; bonusGot: boolean; bonusReady: boolean; cooldownS: number; rows: { slot: number; network: 'adsgram' | 'monetag' | 'tads'; coins: number; energy: boolean; until: number }[]; bonus: { coins: number; gem: string } };
+  bonusAd: { coins: number; gem: string; perDay: number; left: number };
   tasks: TaskT[]; now: number; clientAt: number;
 };
 

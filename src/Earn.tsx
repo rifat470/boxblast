@@ -53,14 +53,21 @@ export default function Earn({ ctx }: { ctx: Ctx }) {
       <p className="small muted">The ad is optional. Without it you still get the normal daily reward.</p>
 
       <h2>Bonus coins</h2>
-      <div className="item">
-        <div>
+      <div className={'item special' + (s.bonusAd.left <= 0 ? ' used' : '')}>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <b>Watch a short ad</b>
-          <div className="small muted">+{s.ads.reward} coins · {s.ads.left} left today · optional</div>
+          <div className="dt-rew">
+            <span className="dt-pill">+{fmt(s.bonusAd.coins)} coins</span>
+            <span className="dt-pill gem">{gemOf(s.bonusAd.gem)?.name}</span>
+          </div>
+          <div className="small muted" style={{ marginTop: 4 }}>
+            {s.bonusAd.left > 0 ? `${s.bonusAd.left} left today · optional` : 'Collected today. Come back tomorrow.'}
+          </div>
         </div>
-        <button className="btn sm" disabled={adOff} onClick={() => adFor('coins')}>
-          {adBusy ? '…' : wait > 0 ? `${wait}s` : 'Watch'}
-          <em className="ad-pill">AD</em>
+        <div className="gem-mini"><GemIcon id={s.bonusAd.gem} size={40} dim={s.bonusAd.left <= 0} /></div>
+        <button className="btn sm" disabled={adOff || s.bonusAd.left <= 0} onClick={() => adFor('coins')}>
+          {s.bonusAd.left <= 0 ? 'Done' : adBusy ? '…' : wait > 0 ? `${wait}s` : 'Watch'}
+          {s.bonusAd.left > 0 && <em className="ad-pill">AD</em>}
         </button>
       </div>
 

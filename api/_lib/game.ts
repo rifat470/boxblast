@@ -2,7 +2,7 @@ import { randomInt } from 'node:crypto';
 import {
   AD, AD_GEMS, BOOSTS, BOOST_MAX, CARDS, CARD_MAX, DAILY, ENERGY_BASE, ENERGY_STEP, GEMS, MAX_OFFLINE_S,
   MAX_TAPS_PER_S, REGEN_EVERY_S, REF_STEPS, TASKS, boostCost, cardCost, type BoostKind,
-  LEVELS, LEVEL_ENERGY, REF, SKINS, levelOf, DAILY_TASKS, DAILY_TASKS_BONUS,
+  LEVELS, LEVEL_ENERGY, REF, SKINS, levelOf, DAILY_TASKS, DAILY_TASKS_BONUS, OFFLINE, TURBO, DAILY_TASK_COOLDOWN_S, BONUS_AD,
 } from './config.js';
 import { HttpError, type Player } from './db.js';
 
@@ -46,8 +46,14 @@ export function settle(p: Player, now: number): Player {
   const dtc = Math.max(0, (now - Date.parse(q.last_collect)) / 1000);
   const gain = Math.floor((q.pph * Math.min(dtc, MAX_OFFLINE_S)) / 3600);
   if (gain > 0 || dtc > MAX_OFFLINE_S || q.pph === 0) {
-    q.coins += gain;
-    q.total_earned += gain;
+    if (dtc > OFFLINE.afterS && gain > 0) {
+      // The player was away: the income waits in the offline pool until it is claimed (50% free, 100% with one optional ad).
+      const cap = Math.floor((q.pph * MAX_OFFLINE_S) / 3600);
+      q.claimed = { ...q.claimed, pend: Math.min(cap, Number(q.claimed?.pend || 0) + gain) };
+    } else {
+      q.coins += gain;
+      q.total_earned += gain;
+    }
     q.last_collect = iso(now);
   }
   return q;
@@ -67,7 +73,8 @@ const addGem = (p: Player, id: string, n = 1) => {
 export function blast(p: Player, list: { hit?: boolean; perfect?: boolean }[], now: number) {
   const elapsed = Math.min(30, Math.max(0, (now - Date.parse(p.last_sync_at)) / 1000));
   const rateCap = Math.floor(elapsed * MAX_TAPS_PER_S) + 12;
-  const n = Math.min(list.length, p.energy, rateCap);
+  const turbo = Number(p.claimed?.turbo || 0) > Date.parse(p.last_sync_at);
+  const n = Math.min(list.length, turbo ? Infinity : p.energy, rateCap);
   const taps = list.slice(0, n);
   // A player cannot hit more often than is humanly plausible in a 9-crate game.
   const hitCap = Math.floor(n * 0.7) + 2;
@@ -77,10 +84,10 @@ export function blast(p: Player, list: { hit?: boolean; perfect?: boolean }[], n
     if (!t.hit || hits >= hitCap) continue;
     hits++;
     const gold = randomInt(100) < 15;
-    const base = gold ? 15 : 1 + randomInt(9);
-    gain += base + (t.perfect ? 2 : 0) + (p.tap_level - 1) * 2;
+    const base = gold ? 20 : 2 + randomInt(9);
+    gain += (base + (t.perfect ? 3 : 0) + (p.tap_level - 1) * 2) * (turbo ? TURBO.mult : 1);
   }
-  p.energy -= n;
+  if (!turbo) p.energy -= n; // Turbo Blast: taps are free
   p.total_blasts = (p.total_blasts || 0) + hits;
   earn(p, gain);
   p.last_sync_at = iso(now);
@@ -139,7 +146,8 @@ export function claimTask(p: Player, id: string, now: number) {
   const t = TASKS.find((x) => x.id === id);
   if (!t) throw new HttpError(400, 'Unknown task');
   if (p.claimed[id]) throw new HttpError(409, 'Already claimed');
-  if (taskProgress(p, t.kind) < t.target) throw new HttpError(409, 'Not completed yet');
+  // The channel task is verified by the server against Telegram before this function is called.
+  if (t.kind !== 'channel' && taskProgress(p, t.kind) < t.target) throw new HttpError(409, 'Not completed yet');
   p.claimed = { ...p.claimed, [id]: now };
   earn(p, t.reward);
   return { player: p, result: { reward: t.reward } };
@@ -164,15 +172,36 @@ export function claimRef(p: Player, id: string, now: number) {
   return { player: p, result: { reward: st.coins, gem: st.gem } };
 }
 
-export function claimLevel(p: Player, lvl: number, now: number) {
+export function claimLevel(p: Player, lvl: number, now: number, double = false) {
   const L = LEVELS.find((x) => x.lvl === lvl);
   if (!L || L.lvl < 2) throw new HttpError(400, 'Unknown level');
   if (levelOf(p.total_earned).lvl < L.lvl) throw new HttpError(409, 'Level not reached yet');
   const key = `lvl_${L.lvl}`;
   if (p.claimed[key]) throw new HttpError(409, 'Already claimed');
+  const adGem = double ? registerAd(p, now) : null;
+  const reward = L.reward * (double ? 2 : 1);
   p.claimed = { ...p.claimed, [key]: now };
-  earn(p, L.reward);
-  return { player: p, result: { reward: L.reward } };
+  earn(p, reward);
+  return { player: p, result: { reward, doubled: double, gem: adGem } };
+}
+
+// Offline pool: 50% for free, 100% after one optional ad.
+export function claimOffline(p: Player, double: boolean, now: number) {
+  const pend = Math.floor(Number(p.claimed?.pend || 0));
+  if (pend <= 0) throw new HttpError(409, 'Nothing to claim');
+  const adGem = double ? registerAd(p, now) : null;
+  const reward = double ? pend : Math.floor(pend * OFFLINE.freeRatio);
+  p.claimed = { ...p.claimed, pend: 0 };
+  earn(p, reward);
+  return { player: p, result: { reward, full: pend, doubled: double, gem: adGem } };
+}
+
+export function grantTurbo(p: Player, now: number) {
+  checkAdAllowed(p, now);
+  const gem = registerAd(p, now);
+  const cur = Number(p.claimed?.turbo || 0);
+  p.claimed = { ...p.claimed, turbo: Math.max(now, cur) + TURBO.seconds * 1000 };
+  return { player: p, result: { gem, until: p.claimed.turbo } };
 }
 
 export function setSkin(p: Player, id: string) {
@@ -209,17 +238,39 @@ function registerAd(p: Player, now: number): string | null {
 
 export function grantAd(p: Player, kind: string, now: number) {
   checkAdAllowed(p, now);
-  const gem = registerAd(p, now);
-  if (kind === 'energy') p.energy = maxEnergy(p);
-  else earn(p, AD.reward);
-  return { player: p, result: { gem, kind } };
+  const gems: string[] = [];
+  if (kind === 'coins' && bonusAdLeft(p, now).left <= 0) throw new HttpError(409, 'Special bonus already collected today. Come back tomorrow.');
+  const adGem = registerAd(p, now);
+  if (kind === 'energy') {
+    p.energy = maxEnergy(p);
+  } else {
+    earn(p, BONUS_AD.coins);
+    addGem(p, BONUS_AD.gem);
+    gems.push(BONUS_AD.gem);
+    const u = bonusAdLeft(p, now).used + 1;
+    p.claimed = { ...p.claimed, bonusAd: { d: day(now), n: u } };
+  }
+  if (adGem) gems.push(adGem);
+  return { player: p, result: { gem: gems[0] || null, gems, kind, coins: kind === 'coins' ? BONUS_AD.coins : 0 } };
 }
 
 // ---- Daily Tasks: progress lives in claimed.dt = { d: 'YYYY-MM-DD', done: [slots] } and resets every UTC day ----
+const dtRaw = (p: Player): any => (p.claimed?.dt && typeof p.claimed.dt === 'object' ? p.claimed.dt : {});
+
+// Daily Tasks: each row waits 3 hours after its ad is finished. Finishing all three rows (all waiting at the same time)
+// opens the "Finish all 3 tasks" chest, which can be collected once per UTC day.
 export function dailyTaskState(p: Player, now: number) {
-  const dt: any = p.claimed?.dt;
-  const done: number[] = dt && dt.d === day(now) && Array.isArray(dt.done) ? dt.done : [];
-  return { done, bonusGot: !!(dt && dt.d === day(now) && dt.bonus) };
+  const dt = dtRaw(p);
+  const slots = dt.slots || {};
+  const until: Record<number, number> = {};
+  const done: number[] = [];
+  for (const d of DAILY_TASKS) {
+    const u = Number(slots[d.slot] || 0) + DAILY_TASK_COOLDOWN_S * 1000;
+    until[d.slot] = u;
+    if (u > now) done.push(d.slot);
+  }
+  const bonusGot = dt.bonusDay === day(now);
+  return { done, until, bonusGot, ready: !!dt.ready && !bonusGot };
 }
 
 export function claimDailyTask(p: Player, slot: number, network: string, now: number) {
@@ -228,28 +279,39 @@ export function claimDailyTask(p: Player, slot: number, network: string, now: nu
   // The row's own network, or Adsgram when that network had no ad within 5 seconds.
   if (network !== def.network && network !== 'adsgram') throw new HttpError(400, 'Wrong ad network');
   const st = dailyTaskState(p, now);
-  if (st.done.includes(slot)) throw new HttpError(409, 'Already completed today');
+  if (st.done.includes(slot)) throw new HttpError(409, 'This task is ready again in a few hours');
   checkAdAllowed(p, now);
-  const done = [...st.done, slot].sort();
+  const dt = dtRaw(p);
+  const slots = { ...(dt.slots || {}), [slot]: now };
   const gem = registerAd(p, now);
   earn(p, def.coins);
   if (def.energy) p.energy = maxEnergy(p);
-  p.claimed = { ...p.claimed, dt: { d: day(now), done, bonus: false } };
-  return { player: p, result: { slot, coins: def.coins, energy: def.energy, gem, allDone: done.length === DAILY_TASKS.length } };
+  const allDone = DAILY_TASKS.every((d) => Number(slots[d.slot] || 0) + DAILY_TASK_COOLDOWN_S * 1000 > now);
+  const ready = (!!dt.ready || allDone) && dt.bonusDay !== day(now);
+  p.claimed = { ...p.claimed, dt: { slots, ready, bonusDay: dt.bonusDay || null } };
+  return { player: p, result: { slot, coins: def.coins, energy: def.energy, gem, allDone } };
 }
 
 // "Finish all 3 tasks" chest. Normal claim = coins + gem. With one optional ad the coins and the gem are doubled.
 export function claimDailyBonus(p: Player, double: boolean, now: number) {
   const st = dailyTaskState(p, now);
-  if (st.done.length < DAILY_TASKS.length) throw new HttpError(409, 'Finish all 3 tasks first');
   if (st.bonusGot) throw new HttpError(409, 'Bonus already collected today');
+  if (!st.ready) throw new HttpError(409, 'Finish all 3 tasks first');
   const coins = DAILY_TASKS_BONUS.coins * (double ? 2 : 1);
   const gemCount = double ? 2 : 1;
   const adGem = double ? registerAd(p, now) : null;
   earn(p, coins);
   addGem(p, DAILY_TASKS_BONUS.gem, gemCount);
-  p.claimed = { ...p.claimed, dt: { d: day(now), done: st.done, bonus: true } };
+  const dt = dtRaw(p);
+  p.claimed = { ...p.claimed, dt: { slots: dt.slots || {}, ready: false, bonusDay: day(now) } };
   return { player: p, result: { coins, gem: DAILY_TASKS_BONUS.gem, gemCount, doubled: double, adGem } };
+}
+
+// Special "Bonus coins" ad: big coin reward + a gem, limited per day.
+export function bonusAdLeft(p: Player, now: number) {
+  const b: any = p.claimed?.bonusAd;
+  const used = b && b.d === day(now) ? Number(b.n) || 0 : 0;
+  return { used, left: Math.max(0, BONUS_AD.perDay - used) };
 }
 
 export function taskList(p: Player, channelUrl: string | null) {
@@ -308,16 +370,23 @@ export function view(p: Player, now: number) {
     },
     ads: { left: l.left, used: l.used, perDay: AD.perDay, nextAt: l.nextAt, reward: AD.reward, gemSteps: AD_GEMS },
     gems: GEMS.map((g) => ({ id: g.id, name: g.name, rank: g.rank, count: gems[g.id] || 0 })),
+    offline: { pending: Math.floor(Number(p.claimed?.pend || 0)), freeRatio: OFFLINE.freeRatio },
+    turbo: { until: Number(p.claimed?.turbo || 0), seconds: TURBO.seconds, mult: TURBO.mult },
     refCount: p.ref_count,
     refReward: { inviter: REF.inviter, invitee: REF.invitee },
     refSteps: REF_STEPS.map((x) => ({ ...x, claimed: !!p.claimed[x.id], reached: p.ref_count >= x.at })),
-    dailyTasks: {
-      done: dailyTaskState(p, now).done,
-      bonusGot: dailyTaskState(p, now).bonusGot,
-      bonusReady: dailyTaskState(p, now).done.length >= DAILY_TASKS.length && !dailyTaskState(p, now).bonusGot,
-      rows: DAILY_TASKS.map((x) => ({ slot: x.slot, network: x.network, coins: x.coins, energy: x.energy })),
-      bonus: DAILY_TASKS_BONUS,
-    },
+    dailyTasks: (() => {
+      const st = dailyTaskState(p, now);
+      return {
+        done: st.done,
+        bonusGot: st.bonusGot,
+        bonusReady: st.ready,
+        cooldownS: DAILY_TASK_COOLDOWN_S,
+        rows: DAILY_TASKS.map((x) => ({ slot: x.slot, network: x.network, coins: x.coins, energy: x.energy, until: st.until[x.slot] > now ? st.until[x.slot] : 0 })),
+        bonus: DAILY_TASKS_BONUS,
+      };
+    })(),
+    bonusAd: { coins: BONUS_AD.coins, gem: BONUS_AD.gem, perDay: BONUS_AD.perDay, left: bonusAdLeft(p, now).left },
     tasks: taskList(p, ch ? `https://t.me/${ch}` : null),
     now,
   };

@@ -3,29 +3,25 @@ import type { Ctx } from './App';
 import GemIcon from './GemIcon';
 
 const pad = (n: number) => String(n).padStart(2, '0');
+const clock = (sec: number) => `${pad(Math.floor(sec / 3600))}:${pad(Math.floor((sec % 3600) / 60))}:${pad(sec % 60)}`;
 
-// Gamee-style daily tasks: three optional ads, each with its own reward, plus a bonus chest for finishing all three.
-export default function DailyTasks({ ctx, compact = false }: { ctx: Ctx; compact?: boolean }) {
+// Gamee-style daily tasks. Each ad row gives its reward right after the ad is finished, then waits 3 hours.
+// Finish all three and the bonus chest opens (coins + gem, doubled with one optional ad).
+export default function DailyTasks({ ctx }: { ctx: Ctx; compact?: boolean }) {
   const { s, nowMs, adBusy, dailyTask, dailyBonus } = ctx;
   const dt = s.dailyTasks;
   const total = dt.rows.length;
-  const doneN = dt.done.length;
+  const doneN = dt.rows.filter((r) => r.until > nowMs).length;
   const wait = Math.max(0, Math.ceil((s.ads.nextAt - nowMs) / 1000));
   const limit = s.ads.left <= 0;
-
-  // Tasks reset at 00:00 UTC (the same moment as the daily reward).
-  const d = new Date(nowMs);
-  const nextReset = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1);
-  const left = Math.max(0, Math.floor((nextReset - nowMs) / 1000));
-  const timer = `${pad(Math.floor(left / 3600))}:${pad(Math.floor((left % 3600) / 60))}:${pad(left % 60)}`;
   const gemName = s.gems.find((g) => g.id === dt.bonus.gem)?.name;
 
   return (
-    <div className={'dt' + (compact ? ' dt-compact' : '')}>
+    <div className="dt">
       <div className="dt-head">
         <div>
           <h2 className="dt-title">DAILY TASKS</h2>
-          <div className="dt-sub">Resets in {timer}</div>
+          <div className="dt-sub">Each task is ready again {Math.round(dt.cooldownS / 3600)} hours after you finish it</div>
         </div>
         <div className="dt-count" aria-label={`${doneN} of ${total} done`}>
           <b>{doneN}</b>/{total}
@@ -35,7 +31,8 @@ export default function DailyTasks({ ctx, compact = false }: { ctx: Ctx; compact
       <div className="dt-bar"><i style={{ width: `${(doneN / total) * 100}%` }} /></div>
 
       {dt.rows.map((r) => {
-        const done = dt.done.includes(r.slot);
+        const left = Math.max(0, Math.ceil((r.until - nowMs) / 1000));
+        const done = left > 0;
         const disabled = done || adBusy || limit || wait > 0;
         return (
           <div key={r.slot} className={'dt-row' + (done ? ' done' : '')}>
@@ -46,6 +43,7 @@ export default function DailyTasks({ ctx, compact = false }: { ctx: Ctx; compact
                 <span className="dt-pill">+{fmt(r.coins)} coins</span>
                 {r.energy && <span className="dt-pill energy">⚡ Full energy</span>}
               </div>
+              {done && <div className="dt-wait">Ready again in {clock(left)}</div>}
             </div>
             <button className={'btn sm' + (done ? ' ghost' : '')} disabled={disabled} onClick={() => dailyTask(r.slot)}>
               {done ? 'Done' : adBusy ? '…' : wait > 0 && !limit ? `${wait}s` : 'Watch'}
@@ -81,7 +79,7 @@ export default function DailyTasks({ ctx, compact = false }: { ctx: Ctx; compact
           </button>
         </div>
       )}
-      <p className="dt-note">Ads are optional. The game works fully without them.</p>
+      <p className="dt-note">Ads are optional. The game works fully without them. The bonus chest can be collected once a day.</p>
     </div>
   );
 }

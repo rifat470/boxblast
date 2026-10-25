@@ -33,7 +33,13 @@ export const DAILY = [100, 200, 300, 500, 800, 1200, 2000];
 export const REF = { inviter: 2500, invitee: 1000 };
 
 // Optional rewarded ads. Always the player's choice, never required.
-export const AD = { reward: 250, perDay: 20, cooldownS: 35, confirmWindowS: 300 };
+export const AD = { reward: 5000, perDay: 30, cooldownS: 35, confirmWindowS: 300 };
+
+// Offline earnings: when a player was away longer than afterS, the income waits in a pool.
+// Claim = 50% for free, or 100% after one optional ad.
+export const OFFLINE = { afterS: 600, freeRatio: 0.5 };
+// Turbo Blast: one optional ad = 60 seconds with x3 coins per hit and no energy cost.
+export const TURBO = { seconds: 60, mult: 3 };
 
 // ---- Daily Tasks: three optional ads per day. Each row has its own ad network and its own reward. ----
 export type DailyTaskDef = { slot: number; network: 'adsgram' | 'monetag' | 'tads'; coins: number; energy: boolean; gem: string | null };
@@ -44,6 +50,10 @@ export const DAILY_TASKS: DailyTaskDef[] = [
 ];
 // Finish all three rows in one day and a bonus gem is added to the collection.
 export const DAILY_TASKS_BONUS = { coins: 2000, gem: 'white' };
+// After a Daily Task ad is finished the row waits this long before it can be watched again.
+export const DAILY_TASK_COOLDOWN_S = 3 * 3600;
+// The special "Bonus coins" ad (Earn tab). Adjust perDay if you want it more often.
+export const BONUS_AD = { coins: 5000, gem: 'blue', perDay: 1 };
 export const AD_NETWORKS = ['adsgram', 'monetag', 'tads'] as const;
 
 // ---- Gems: in-game collectibles with NO cash value. ----
