@@ -1,10 +1,11 @@
-import { randomInt } from 'node:crypto';
+import { randomBytes, randomInt } from 'node:crypto';
 import {
   AD, AD_GEMS, BOOSTS, BOOST_MAX, CARDS, CARD_MAX, DAILY, ENERGY_BASE, ENERGY_STEP, GEMS, MAX_OFFLINE_S,
   MAX_TAPS_PER_S, REGEN_EVERY_S, REF_STEPS, TASKS, boostCost, cardCost, type BoostKind,
-  LEVELS, LEVEL_ENERGY, REF, SKINS, levelOf, DAILY_TASKS, DAILY_TASKS_BONUS, OFFLINE, TURBO, DAILY_TASK_COOLDOWN_S, BONUS_AD,
+  LEVELS, LEVEL_ENERGY, REF, SKINS, levelOf, DAILY_TASKS, DAILY_TASKS_BONUS, OFFLINE, TURBO, DAILY_TASK_COOLDOWN_S, MATCH, BONUS_AD,
 } from './config.js';
 import { HttpError, type Player } from './db.js';
+import { GEM_IDS, goalsMet, levelInfo, newRound, trySwap } from './matchEngine.js';
 
 const iso = (ms: number) => new Date(ms).toISOString();
 export const day = (ms: number) => iso(ms).slice(0, 10);
@@ -372,6 +373,7 @@ export function view(p: Player, now: number) {
     gems: GEMS.map((g) => ({ id: g.id, name: g.name, rank: g.rank, count: gems[g.id] || 0 })),
     offline: { pending: Math.floor(Number(p.claimed?.pend || 0)), freeRatio: OFFLINE.freeRatio },
     turbo: { until: Number(p.claimed?.turbo || 0), seconds: TURBO.seconds, mult: TURBO.mult },
+    match: matchView(p, now),
     refCount: p.ref_count,
     refReward: { inviter: REF.inviter, invitee: REF.invitee },
     refSteps: REF_STEPS.map((x) => ({ ...x, claimed: !!p.claimed[x.id], reached: p.ref_count >= x.at })),
@@ -389,5 +391,171 @@ export function view(p: Player, now: number) {
     bonusAd: { coins: BONUS_AD.coins, gem: BONUS_AD.gem, perDay: BONUS_AD.perDay, left: bonusAdLeft(p, now).left },
     tasks: taskList(p, ch ? `https://t.me/${ch}` : null),
     now,
+  };
+}
+
+// =====================================================================================================
+// MATCH (swap puzzle). The server owns the seed, hearts, extra moves and rewards, and REPLAYS every
+// round with the same engine the browser uses, so a faked "I won" can never pay anything.
+// State lives in claimed.m = { lvl, h, ht, r: round, w: last win, gd: gems found today }.
+// =====================================================================================================
+type MatchRound = { id: string; seed: number; lvl: number; t: number; extra: number; done: boolean };
+const getM = (p: Player): any => ({
+  lvl: 1, h: MATCH.heartsMax, ht: 0, r: null, w: null, gd: { d: '', n: 0 },
+  ...(p.claimed?.m ? JSON.parse(JSON.stringify(p.claimed.m)) : {}),
+});
+const putM = (p: Player, m: any) => {
+  p.claimed = { ...p.claimed, m };
+};
+
+/** Hearts with the 30-minute regeneration applied. */
+export function heartsNow(m: any, now: number) {
+  let n = Math.max(0, Math.min(MATCH.heartsMax, Number(m.h)));
+  let t = Number(m.ht) || now;
+  if (n >= MATCH.heartsMax) return { n: MATCH.heartsMax, t: now };
+  const k = Math.floor((now - t) / (MATCH.heartRegenS * 1000));
+  if (k > 0) {
+    n = Math.min(MATCH.heartsMax, n + k);
+    t = n >= MATCH.heartsMax ? now : t + k * MATCH.heartRegenS * 1000;
+  }
+  return { n, t };
+}
+
+export const matchReward = (level: number, leftover: number) =>
+  MATCH.coinsBase + MATCH.coinsPerLevel * level + MATCH.coinsPerLeftover * Math.max(0, leftover);
+
+const roundInfo = (r: MatchRound) => ({
+  id: r.id,
+  seed: r.seed,
+  level: r.lvl,
+  extra: r.extra,
+  moves: levelInfo(r.lvl).moves + r.extra,
+});
+
+export function matchStart(p: Player, now: number) {
+  const m = getM(p);
+  const h = heartsNow(m, now);
+  // An unfinished round is resumed (same board, no extra heart) for a while, so closing the app is never punished.
+  if (m.r && !m.r.done && now - m.r.t < MATCH.resumeS * 1000) {
+    m.h = h.n;
+    m.ht = h.t;
+    putM(p, m);
+    return { player: p, result: { round: roundInfo(m.r), resumed: true } };
+  }
+  if (h.n < 1) throw new HttpError(409, 'no_hearts');
+  const round: MatchRound = { id: randomBytes(6).toString('hex'), seed: randomInt(1, 2147483647), lvl: Number(m.lvl) || 1, t: now, extra: 0, done: false };
+  m.h = h.n - 1;
+  m.ht = h.n >= MATCH.heartsMax ? now : h.t; // the regeneration clock starts when the first heart is spent
+  m.r = round;
+  putM(p, m);
+  return { player: p, result: { round: roundInfo(round), resumed: false } };
+}
+
+export function matchFinish(p: Player, id: string, moves: any, now: number) {
+  const m = getM(p);
+  const r: MatchRound | null = m.r;
+  if (!r || r.id !== String(id)) throw new HttpError(409, 'This round is no longer active');
+  if (r.done) throw new HttpError(409, 'This round is already finished');
+  if (!Array.isArray(moves) || moves.length > 80) throw new HttpError(400, 'Invalid moves');
+  if (now - r.t < moves.length * MATCH.minMoveMs) throw new HttpError(409, 'Too fast to be a real game');
+  const info = levelInfo(r.lvl);
+  const allowed = info.moves + r.extra;
+  const s = newRound(r.seed, r.lvl, r.extra);
+  for (const mv of moves) {
+    if (!Array.isArray(mv) || mv.length !== 4) throw new HttpError(400, 'Invalid move');
+    if (s.used >= allowed || goalsMet(s)) throw new HttpError(409, 'Move not allowed');
+    const res = trySwap(s, mv[0], mv[1], mv[2], mv[3]);
+    if (!res.valid) throw new HttpError(409, 'Invalid move');
+  }
+  const win = goalsMet(s);
+  r.done = true;
+  const out: any = { win, score: s.score, collected: s.collected, level: r.lvl, coins: 0, gems: [] as string[], leftover: allowed - s.used };
+  if (win) {
+    // Only a limited number of wins per day pay coins and gems. The level still goes up.
+    const wd = m.wd && m.wd.d === day(now) ? m.wd : { d: day(now), n: 0 };
+    const rewarded = wd.n < MATCH.winsPerDay;
+    out.limited = !rewarded;
+    if (rewarded) {
+      wd.n++;
+      const coins = matchReward(r.lvl, allowed - s.used);
+      earn(p, coins);
+      out.coins = coins;
+      // gems found inside the boxes, up to a daily limit
+      const gd = m.gd && m.gd.d === day(now) ? m.gd : { d: day(now), n: 0 };
+      s.gems.forEach((cnt, i) => {
+        for (let k = 0; k < cnt && gd.n < MATCH.gemCapPerDay; k++) {
+          addGem(p, GEM_IDS[i], 1);
+          out.gems.push(GEM_IDS[i]);
+          gd.n++;
+        }
+      });
+      m.gd = gd;
+      m.w = { id: r.id, coins, dbl: false };
+    } else {
+      m.w = null;
+    }
+    m.wd = wd;
+    m.lvl = r.lvl + 1;
+    const h = heartsNow(m, now);
+    m.h = Math.min(MATCH.heartsMax, h.n + 1); // a win gives the heart back
+    m.ht = m.h >= MATCH.heartsMax ? now : h.t;
+  }
+  putM(p, { ...m, r });
+  return { player: p, result: out };
+}
+
+export function matchExtra(p: Player, id: string, now: number) {
+  const m = getM(p);
+  const r: MatchRound | null = m.r;
+  if (!r || r.id !== String(id) || r.done) throw new HttpError(409, 'No active round');
+  if (r.extra >= MATCH.extraMoves * MATCH.maxExtraGrants) throw new HttpError(409, 'No more extra moves for this round');
+  checkAdAllowed(p, now);
+  const gem = registerAd(p, now);
+  r.extra += MATCH.extraMoves;
+  putM(p, { ...m, r });
+  return { player: p, result: { extra: r.extra, added: MATCH.extraMoves, gem } };
+}
+
+export function matchHeart(p: Player, now: number) {
+  const m = getM(p);
+  const h = heartsNow(m, now);
+  if (h.n >= MATCH.heartsMax) throw new HttpError(409, 'Your hearts are already full');
+  checkAdAllowed(p, now);
+  const gem = registerAd(p, now);
+  m.h = h.n + 1;
+  m.ht = m.h >= MATCH.heartsMax ? now : h.t;
+  putM(p, m);
+  return { player: p, result: { hearts: m.h, gem } };
+}
+
+export function matchDouble(p: Player, id: string, now: number) {
+  const m = getM(p);
+  if (!m.w || m.w.id !== String(id)) throw new HttpError(409, 'Nothing to double');
+  if (m.w.dbl) throw new HttpError(409, 'Already doubled');
+  checkAdAllowed(p, now);
+  const gem = registerAd(p, now);
+  earn(p, m.w.coins);
+  m.w = { ...m.w, dbl: true };
+  putM(p, m);
+  return { player: p, result: { coins: m.w.coins, gem } };
+}
+
+export function matchView(p: Player, now: number) {
+  const m = getM(p);
+  const h = heartsNow(m, now);
+  const r: MatchRound | null = m.r && !m.r.done ? m.r : null;
+  const gd = m.gd && m.gd.d === day(now) ? m.gd : { d: day(now), n: 0 };
+  return {
+    level: Number(m.lvl) || 1,
+    hearts: h.n,
+    maxHearts: MATCH.heartsMax,
+    nextHeartAt: h.n >= MATCH.heartsMax ? 0 : h.t + MATCH.heartRegenS * 1000,
+    preview: levelInfo(Number(m.lvl) || 1),
+    round: r && now - r.t < MATCH.resumeS * 1000 ? { id: r.id, level: r.lvl, extra: r.extra } : null,
+    canDouble: m.w && !m.w.dbl ? { id: m.w.id, coins: m.w.coins } : null,
+    gemsToday: gd.n,
+    gemCap: MATCH.gemCapPerDay,
+    extraMoves: MATCH.extraMoves,
+    maxExtra: MATCH.extraMoves * MATCH.maxExtraGrants,
   };
 }

@@ -191,3 +191,17 @@ This endpoint checks your environment variables and Supabase connection, confirm
 - Fixed: the "Join the channel" task could never be claimed (server bug). The bot must still be an admin of the channel.
 - Fixed: a TADS ad closed early could keep the app waiting for minutes. Now an early close ends at once with no reward.
 - Tested with a real browser and the real server code: 38 app checks + 73 server checks.
+
+## v11 changes (no new SQL)
+- Ad reward checking is now patient and visible: after an ad the app shows "Verifying your reward…" for up to about 30 seconds (the ad network's message to your server can arrive late). If it still has not arrived, a "Check reward" button appears, which pays the finished ad without a second ad (a confirmation is valid for 5 minutes).
+- Owner diagnostics: open `https://YOUR-APP.vercel.app/api/ad-debug?secret=YOUR_AD_REWARD_SECRET` (add `&id=TELEGRAM_ID` for one player). After you watch an ad, a new row must appear there with the network name. If no row appears, the ad network never called your server: check the Reward URL / postback / webhook and the secret.
+- Daily Tasks header text no longer overlaps the counter.
+- Tested: 73 server checks, 38 + 9 browser checks.
+
+## v12 changes (no new SQL beyond migration_v5.sql)
+- **Box Match (swap puzzle)** is the first tab: 7x7 small boxes, drag a box onto its neighbour, 3+ of one colour burst, new boxes fall, chains give bonus points. Each level is an "order" (collect N boxes of given colours in a number of moves). Some boxes hide gems that go to the Wallet (max 6 a day, never the Eternal Diamond). Classic Blast stays in the Blast tab.
+- The server hands out the seed and REPLAYS every round with the same engine (`api/_lib/matchEngine.ts`), so a faked win pays nothing. Hearts: 5, one comes back every 30 minutes, a win returns the heart, an unfinished round resumes (same board, no extra heart) for 15 minutes.
+- Optional ads in Match: +5 moves when out of moves (max +10 a round), +1 heart, double the win reward. The first levels need no ad at all.
+- **Ads that finished but "did not count"**: besides the ad network's server message, the reward is now also verified with a signed ticket from `/api/game` action `adStart` (min 4 s, used once). The late network message of an already paid ad never pays twice. Set `AD_TRUST=strict` later to accept only the network's message.
+- Level difficulty (`levelInfo` in `api/_lib/matchEngine.ts`) and Match numbers (`MATCH` in `api/_lib/config.ts`) can be tuned without touching other code.
+- Tested against the real code: engine, 73 + 35 server checks, 4 browser suites (all passed).

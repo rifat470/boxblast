@@ -1,4 +1,4 @@
-import { db } from './_lib/db.js';
+import { recordAdEvent } from './_lib/adEvents.js';
 
 // Monetag rewarded postback. In the Monetag dashboard set the postback URL to:
 // https://YOUR-APP.vercel.app/api/monetag-postback?secret=YOUR_SECRET&ymid={ymid}&event_type={event_type}&reward_event_type={reward_event_type}&telegram_id={telegram_id}&zone_id={zone_id}
@@ -18,7 +18,7 @@ export default async function handler(req: any, res: any) {
   const id = Number(/^\d{3,15}$/.test(String(q.telegram_id || '')) ? q.telegram_id : fromYmid);
   if (!Number.isSafeInteger(id) || id <= 0) return res.status(200).json({ ok: true, ignored: true });
   try {
-    const { error } = await db().from('ad_events').insert({ tg_id: id, network: 'monetag', ymid });
+    const { error } = await recordAdEvent(id, 'monetag', ymid);
     // 23505 = this ymid was already stored (Monetag retries or sends impression and click): that is fine.
     if (error && error.code !== '23505') throw error;
     return res.status(200).json({ ok: true });

@@ -1,8 +1,9 @@
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { verifyInitData } from './_lib/auth.js';
 import { db, getPlayer, HttpError, mutate, type Player } from './_lib/db.js';
 import { AD, REF, TASKS, levelOf } from './_lib/config.js';
 import {
-  blast, buyBoost, buyCard, checkAdAllowed, claimDaily, claimDailyBonus, claimDailyTask, claimLevel, claimOffline, grantTurbo, claimRef, claimTask, grantAd, newPlayer, setSkin, settle, view,
+  blast, buyBoost, buyCard, checkAdAllowed, claimDaily, claimDailyBonus, claimDailyTask, claimLevel, claimOffline, grantTurbo, matchDouble, matchExtra, matchFinish, matchHeart, matchStart, claimRef, claimTask, grantAd, newPlayer, setSkin, settle, view,
 } from './_lib/game.js';
 
 const bad = (m: string) => new HttpError(400, m);
@@ -24,8 +25,30 @@ async function isChannelMember(userId: number) {
   return ['member', 'administrator', 'creator'].includes(j.result?.status);
 }
 
-// Adsgram calls /api/ad-reward after a completed ad; one confirmation = one reward. Returns false if none found.
-async function consumeAdConfirmation(id: number, now: number, network = 'adsgram') {
+// ---- Ad proof ----
+// 1) Strong proof: the ad network's own server told us (Adsgram reward URL / Monetag postback / TADS webhook) -> an unclaimed ad_events row.
+// 2) Fallback (AD_TRUST=client, the default): the ad SDK in the player's phone reported "watched till the end" AND the player holds a
+//    signed ticket from /adStart that is at least 4 seconds old and used only once. The reward limits (35 s rest, daily cap) still apply.
+//    Set AD_TRUST=strict once your Reward URL / postback / webhook work and you only want server proof.
+const ATT_MIN_MS = 4000;
+const ATT_MAX_MS = 10 * 60 * 1000;
+const attKey = () => process.env.AD_REWARD_SECRET || process.env.BOT_TOKEN || '';
+const signAtt = (id: number, nonce: string, t: number) =>
+  createHmac('sha256', attKey()).update(`${id}.${nonce}.${t}`).digest('hex').slice(0, 40);
+
+function checkAtt(id: number, att: any, now: number): string | null {
+  if (!att || typeof att !== 'object') return null;
+  const { nonce, t, sig } = att;
+  if (typeof nonce !== 'string' || !/^[0-9a-f]{16}$/.test(nonce) || !Number.isFinite(t) || typeof sig !== 'string') return null;
+  const want = Buffer.from(signAtt(id, nonce, Number(t)));
+  const got = Buffer.from(sig);
+  if (want.length !== got.length || !timingSafeEqual(want, got)) return null;
+  const age = now - Number(t);
+  if (age < ATT_MIN_MS || age > ATT_MAX_MS) return null;
+  return nonce;
+}
+
+async function consumeAdConfirmation(id: number, now: number, network = 'adsgram', att?: any) {
   if (process.env.AD_SERVER_CONFIRM === 'false') return true;
   const since = new Date(now - AD.confirmWindowS * 1000).toISOString();
   const { data } = await db()
@@ -38,24 +61,37 @@ async function consumeAdConfirmation(id: number, now: number, network = 'adsgram
     .order('id', { ascending: true })
     .limit(1);
   const ev = data?.[0];
-  if (!ev) return false;
-  const { data: upd } = await db()
-    .from('ad_events')
-    .update({ claimed: true })
-    .eq('id', ev.id)
-    .eq('claimed', false)
-    .select('id');
-  return !!upd?.length;
+  // A ticket is used up by exactly one reward, whichever kind of proof paid it.
+  const nonce = process.env.AD_TRUST === 'strict' ? null : checkAtt(id, att, now);
+  const ticketUsed = async () => {
+    if (!nonce) return false;
+    const { data: u1 } = await db().from('ad_events').select('id').eq('tg_id', id).eq('ymid', 'a' + nonce).limit(1);
+    const { data: u2 } = await db().from('ad_events').select('id').eq('tg_id', id).eq('ymid', 'm' + nonce).limit(1);
+    return !!(u1?.length || u2?.length);
+  };
+  if (ev) {
+    const { data: upd } = await db().from('ad_events').update({ claimed: true }).eq('id', ev.id).eq('claimed', false).select('id');
+    if (upd?.length) {
+      // the network proof paid: also burn the ticket of this ad so it cannot be reused for another reward
+      if (nonce && !(await ticketUsed())) await db().from('ad_events').insert({ tg_id: id, network, ymid: 'm' + nonce, claimed: true });
+      return true;
+    }
+  }
+  if (!nonce) return false;
+  if (await ticketUsed()) return false;
+  // one ticket = one reward (the unique (network, ymid) index also refuses a second use)
+  const { error } = await db().from('ad_events').insert({ tg_id: id, network, ymid: 'a' + nonce, claimed: true });
+  if (error) return false;
+  return true;
 }
 
-// One confirmed ad is needed. `pre` dry-runs the claim first, so an ad is never used up when the claim would fail.
-async function adGate(id: number, now: number, network: any, pre?: (st: any) => unknown) {
+async function adGate(id: number, now: number, body: any, pre?: (st: any) => unknown) {
   const cur = await getPlayer(id);
   if (!cur) throw new HttpError(404, 'Player not found');
   const st = settle(cur, now);
   checkAdAllowed(st, now);
   if (pre) pre(st);
-  if (!(await consumeAdConfirmation(id, now, netOf(network)))) throw new HttpError(409, 'ad_not_confirmed');
+  if (!(await consumeAdConfirmation(id, now, netOf(body?.network), body?.att))) throw new HttpError(409, 'ad_not_confirmed');
 }
 
 const copyP = (st: any) => ({ ...st, claimed: { ...st.claimed }, gems: { ...(st.gems || {}) } });
@@ -128,16 +164,32 @@ async function route(auth: { user: any; startParam: string }, body: any) {
     case 'claimLevel': {
       const lvl = Number(body.lvl);
       if (!body.double) return act((s) => claimLevel(s, lvl, now, false));
-      await adGate(id, now, body.network, (st) => claimLevel({ ...st, claimed: { ...st.claimed } }, lvl, now, false));
+      await adGate(id, now, body, (st) => claimLevel({ ...st, claimed: { ...st.claimed } }, lvl, now, false));
       return act((s) => claimLevel(s, lvl, now, true));
     }
     case 'claimOffline': {
       if (!body.double) return act((s) => claimOffline(s, false, now));
-      await adGate(id, now, body.network, (st) => claimOffline({ ...st, claimed: { ...st.claimed } }, false, now));
+      await adGate(id, now, body, (st) => claimOffline({ ...st, claimed: { ...st.claimed } }, false, now));
       return act((s) => claimOffline(s, true, now));
     }
+    case 'matchStart':
+      return act((s) => matchStart(s, now));
+    case 'matchFinish':
+      return act((s) => matchFinish(s, String(body.id), body.moves, now));
+    case 'matchExtra': {
+      await adGate(id, now, body, (st) => matchExtra(copyP(st), String(body.id), now));
+      return act((s) => matchExtra(s, String(body.id), now));
+    }
+    case 'matchHeart': {
+      await adGate(id, now, body, (st) => matchHeart(copyP(st), now));
+      return act((s) => matchHeart(s, now));
+    }
+    case 'matchDouble': {
+      await adGate(id, now, body, (st) => matchDouble(copyP(st), String(body.id), now));
+      return act((s) => matchDouble(s, String(body.id), now));
+    }
     case 'turbo': {
-      await adGate(id, now, body.network);
+      await adGate(id, now, body);
       return act((s) => grantTurbo(s, now));
     }
     case 'setSkin':
@@ -151,7 +203,7 @@ async function route(auth: { user: any; startParam: string }, body: any) {
       if (st.last_daily === new Date(now).toISOString().slice(0, 10)) throw new HttpError(409, 'Already claimed today');
       checkAdAllowed(st, now);
       const net = netOf(body.network);
-      if (!(await consumeAdConfirmation(id, now, net))) throw new HttpError(409, 'ad_not_confirmed');
+      if (!(await consumeAdConfirmation(id, now, net, body.att))) throw new HttpError(409, 'ad_not_confirmed');
       return act((s) => claimDaily(s, now, true));
     }
     case 'claimRef':
@@ -165,19 +217,24 @@ async function route(auth: { user: any; startParam: string }, body: any) {
     }
     case 'adClaim': {
       const kind = body.kind === 'energy' ? 'energy' : 'coins';
-      await adGate(id, now, body.network, (st) => grantAd(copyP(st), kind, now)); // dry run: never use up an ad if the bonus is already taken
+      await adGate(id, now, body, (st) => grantAd(copyP(st), kind, now)); // dry run: never use up an ad if the bonus is already taken
       return act((s) => grantAd(s, kind, now));
     }
     case 'dailyBonus': {
       if (!body.double) return act((s) => claimDailyBonus(s, false, now));
-      await adGate(id, now, body.network, (st) => claimDailyBonus(copyP(st), false, now));
+      await adGate(id, now, body, (st) => claimDailyBonus(copyP(st), false, now));
       return act((s) => claimDailyBonus(s, true, now));
     }
     case 'dailyTask': {
       const slot = Number(body.slot);
       const net = netOf(body.network);
-      await adGate(id, now, net, (st) => claimDailyTask(copyP(st), slot, net, now));
+      await adGate(id, now, { ...body, network: net }, (st) => claimDailyTask(copyP(st), slot, net, now));
       return act((s) => claimDailyTask(s, slot, net, now));
+    }
+    case 'adStart': {
+      // A signed ticket handed out before an ad starts. It proves "this player really opened an ad N seconds ago".
+      const nonce = randomBytes(8).toString('hex');
+      return { att: { nonce, t: now, sig: signAtt(id, nonce, now) } };
     }
     case 'leaderboard': {
       const me = await getPlayer(id);

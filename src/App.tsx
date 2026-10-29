@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type JSX } from 'react';
 import { call, fmt, tg, type State } from './api';
 import { watchAd, type Net } from './ads';
 import Play from './Play';
+import Match from './Match';
 import Mine from './Mine';
 import Earn from './Earn';
 import Friends from './Friends';
@@ -9,12 +10,13 @@ import Profile from './Profile';
 import GemIcon from './GemIcon';
 import Avatar from './Avatar';
 import { applyTheme, getLevelConfig } from './theme';
-import { IconBlast, IconEarn, IconFriends, IconProfile, IconUp } from './icons';
+import { IconMatch, IconBlast, IconEarn, IconFriends, IconProfile, IconUp } from './icons';
 import ParticleBackground from './ParticleBackground';
 import { sound, triggerConfetti } from './effects';
 
-type Tab = 'play' | 'mine' | 'earn' | 'friends' | 'profile';
+type Tab = 'match' | 'play' | 'mine' | 'earn' | 'friends' | 'profile';
 const TABS: [Tab, string, () => JSX.Element][] = [
+  ['match', 'Match', IconMatch],
   ['play', 'Blast', IconBlast],
   ['mine', 'Upgrades', IconUp],
   ['earn', 'Earn', IconEarn],
@@ -44,13 +46,14 @@ export type Ctx = {
   dailyTask: (slot: number) => Promise<void>;
   dailyBonus: (double: boolean) => Promise<void>;
   turbo: () => Promise<void>;
+  adAction: (placement: string, action: string, extra?: object) => Promise<any | null>;
 };
 
 export default function App() {
   const inTelegram = !!tg()?.initData;
   const [s, setS] = useState<State | null>(null);
   const [loadErr, setLoadErr] = useState('');
-  const [tab, setTab] = useState<Tab>('play');
+  const [tab, setTab] = useState<Tab>('match');
   const [toast, setToast] = useState('');
   const [pend, setPend] = useState({ coins: 0, n: 0 });
   const [nowMs, setNowMs] = useState(Date.now());
@@ -61,6 +64,8 @@ export default function App() {
   const gemWinN = gemQ[0]?.n || 1;
   const [coinPillBump, setCoinPillBump] = useState(false);
   const [offOpen, setOffOpen] = useState(true);
+  const [verifying, setVerifying] = useState(false);
+  const [retry, setRetry] = useState<{ fn: (net: Net) => Promise<any>; net: Net } | null>(null);
 
   const q = useRef<B[]>([]);
   const inflight = useRef<B[]>([]);
@@ -70,10 +75,10 @@ export default function App() {
 
   const put = (st: State) => setS({ ...st, clientAt: Date.now() });
 
-  const flash = (m: string) => {
+  const flash = (m: string, ms = 2600) => {
     setToast(m);
     clearTimeout(toastT.current);
-    toastT.current = window.setTimeout(() => setToast(''), 2600);
+    toastT.current = window.setTimeout(() => setToast(''), ms);
   };
 
   const updPend = () =>
@@ -181,25 +186,64 @@ export default function App() {
 
   // Rewarded ads: the ad network shows the ad, then OUR SERVER checks that network's confirmation and pays the reward.
   const NOAD = 'No ad available right now. Please try again in a minute.';
-  const confirmed = async (fn: (net: Net) => Promise<any>, net: Net) => {
-    for (let i = 0; i < 8; i++) {
-      try {
-        return await fn(net);
-      } catch (e: any) {
-        if (e.message === 'ad_not_confirmed' && i < 7) {
-          await sleep(1200);
-          continue;
-        }
-        throw e;
-      }
+  // A signed ticket from our server, taken just before an ad starts. It lets the server verify the ad even when the ad network's own server message is late or not set up.
+  const startAd = async () => {
+    try {
+      return (await call('adStart')).att;
+    } catch {
+      return undefined;
     }
-    return null;
+  };
+  // After an ad, the ad network's server tells OUR server "this user finished the ad". That message can take a few seconds,
+  // so we check for about 30 seconds. If it still has not arrived, the player gets a "Check reward" button (no new ad needed).
+  const CONFIRM_DELAYS = [700, 1000, 1200, 1500, 2000, 2500, 3000, 3000, 3000, 3000, 3000, 3000, 3000];
+  const confirmed = async (fn: (net: Net) => Promise<any>, net: Net) => {
+    setVerifying(true);
+    try {
+      for (let i = 0; i <= CONFIRM_DELAYS.length; i++) {
+        try {
+          const res = await fn(net);
+          setRetry(null);
+          return res;
+        } catch (e: any) {
+          if (e.message === 'ad_not_confirmed' && i < CONFIRM_DELAYS.length) {
+            await sleep(CONFIRM_DELAYS[i]);
+            continue;
+          }
+          if (e.message === 'ad_not_confirmed') setRetry({ fn, net });
+          throw e;
+        }
+      }
+      return null;
+    } finally {
+      setVerifying(false);
+    }
   };
   const celebrate = () => {
     sound.playLevelUp();
     triggerConfetti(window.innerWidth / 2, window.innerHeight / 2, ['#ffc93c', '#22c55e', '#ffffff']);
   };
-  const adErr = (e: any) => flash(e.message === 'ad_not_confirmed' ? 'Ad reward not confirmed yet. Please try again in a moment.' : e.message);
+  const adErr = (e: any) =>
+    e.message === 'ad_not_confirmed'
+      ? flash('Your ad finished, but the reward is not confirmed yet. Tap "Check reward" below.', 6000)
+      : flash(e.message);
+  const checkReward = async () => {
+    if (!retry || adBusy) return;
+    setAdBusy(true);
+    try {
+      const res = await confirmed(retry.fn, retry.net);
+      if (res) {
+        put(res.state);
+        celebrate();
+        flash('Reward received!');
+        (res.result?.gems || [res.result?.gem, res.result?.bonusGem].filter(Boolean)).forEach((g: string, i: number) => setTimeout(() => showGem(g), 500 + i * 100));
+      }
+    } catch (e: any) {
+      adErr(e);
+    } finally {
+      setAdBusy(false);
+    }
+  };
 
   const adFor = async (kind: AdKind) => {
     if (adBusy || !s) return;
@@ -207,12 +251,13 @@ export default function App() {
     setAdBusy(true);
     try {
       sound.playTap();
+      const att = await startAd();
       const r = await watchAd(ORDER[kind], `${kind}_btn`);
       if (r.status === 'unavailable' || r.status === 'noad') return flash(NOAD);
       if (r.status === 'skipped') return flash('Watch the full ad to get the reward.');
       await flushAll();
       const res = await confirmed(
-        (net) => (kind === 'daily' ? call('claimDaily', { double: true, network: net }) : call('adClaim', { kind, network: net })),
+        (net) => (kind === 'daily' ? call('claimDaily', { double: true, network: net, att }) : call('adClaim', { kind, network: net, att })),
         r.network,
       );
       if (!res) return;
@@ -236,11 +281,12 @@ export default function App() {
     setAdBusy(true);
     try {
       sound.playTap();
+      const att = await startAd();
       const r = await watchAd(TASK_ORDER[slot] || ['adsgram'], `task_${slot}`);
       if (r.status === 'unavailable' || r.status === 'noad') return flash(NOAD);
       if (r.status === 'skipped') return flash('Watch the full ad to get the reward.');
       await flushAll();
-      const res = await confirmed((net) => call('dailyTask', { slot, network: net }), r.network);
+      const res = await confirmed((net) => call('dailyTask', { slot, network: net, att }), r.network);
       if (!res) return;
       put(res.state);
       celebrate();
@@ -270,11 +316,12 @@ export default function App() {
       }
       if (s.ads.left <= 0) return flash('Daily ad limit reached. Come back tomorrow.');
       sound.playTap();
+      const att = await startAd();
       const r = await watchAd(BONUS_ORDER, 'task_bonus');
       if (r.status === 'unavailable' || r.status === 'noad') return flash(NOAD);
       if (r.status === 'skipped') return flash('Watch the full ad to double the bonus.');
       await flushAll();
-      const res = await confirmed((net) => call('dailyBonus', { double: true, network: net }), r.network);
+      const res = await confirmed((net) => call('dailyBonus', { double: true, network: net, att }), r.network);
       if (!res) return;
       put(res.state);
       celebrate();
@@ -287,6 +334,41 @@ export default function App() {
     }
   };
 
+  // One optional ad -> one server action (used by the Match game: extra moves, hearts, double reward).
+  const adAction = async (placement: string, action: string, extra: object = {}) => {
+    if (adBusy || !s) return null;
+    if (s.ads.left <= 0) {
+      flash('Daily ad limit reached. Come back tomorrow.');
+      return null;
+    }
+    setAdBusy(true);
+    try {
+      sound.playTap();
+      const att = await startAd();
+      const r = await watchAd(['adsgram', 'monetag'], placement);
+      if (r.status === 'unavailable' || r.status === 'noad') {
+        flash(NOAD);
+        return null;
+      }
+      if (r.status === 'skipped') {
+        flash('Watch the full ad to get the reward.');
+        return null;
+      }
+      await flushAll();
+      const res = await confirmed((net) => call(action, { ...extra, network: net, att }), r.network);
+      if (!res) return null;
+      put(res.state);
+      celebrate();
+      (res.result?.gems || [res.result?.gem].filter(Boolean)).forEach((g: string, i: number) => setTimeout(() => showGem(g), 500 + i * 100));
+      return res;
+    } catch (e: any) {
+      adErr(e);
+      return null;
+    } finally {
+      setAdBusy(false);
+    }
+  };
+
   // Turbo Blast: one optional ad = 60 seconds of x3 coins with free taps.
   const turbo = async () => {
     if (adBusy || !s) return;
@@ -294,11 +376,12 @@ export default function App() {
     setAdBusy(true);
     try {
       sound.playTap();
+      const att = await startAd();
       const r = await watchAd(['adsgram', 'monetag'], 'turbo');
       if (r.status === 'unavailable' || r.status === 'noad') return flash(NOAD);
       if (r.status === 'skipped') return flash('Watch the full ad to start Turbo Blast.');
       await flushAll();
-      const res = await confirmed((net) => call('turbo', { network: net }), r.network);
+      const res = await confirmed((net) => call('turbo', { network: net, att }), r.network);
       if (!res) return;
       put(res.state);
       celebrate();
@@ -318,11 +401,12 @@ export default function App() {
     try {
       if (s.ads.left <= 0) return flash('Daily ad limit reached. Come back tomorrow.');
       sound.playTap();
+      const att = await startAd();
       const r = await watchAd(['adsgram', 'monetag'], action);
       if (r.status === 'unavailable' || r.status === 'noad') return flash(NOAD);
       if (r.status === 'skipped') return flash('Watch the full ad to get the full reward.');
       await flushAll();
-      const res = await confirmed((net) => call(action, { ...extra, double: true, network: net }), r.network);
+      const res = await confirmed((net) => call(action, { ...extra, double: true, network: net, att }), r.network);
       if (!res) return;
       put(res.state);
       celebrate();
@@ -409,7 +493,7 @@ export default function App() {
   const skinLvl = Math.min(lvl, Math.max(1, Number(/^lv(\d+)$/.exec(s.skin)?.[1] || lvl)));
 
   turboRef.current = s.turbo.until;
-  const ctx: Ctx = { s, nowMs, act, flash, adFor, adBusy, showGem, dailyTask, dailyBonus, turbo };
+  const ctx: Ctx = { s, nowMs, act, flash, adFor, adBusy, showGem, dailyTask, dailyBonus, turbo, adAction };
 
   return (
     <div className="relative min-h-screen text-[#f4efe6] overflow-x-hidden">
@@ -482,6 +566,7 @@ export default function App() {
               <span className="dt-teaser-go">›</span>
             </button>
           )}
+          {tab === 'match' && <Match ctx={ctx} />}
           {tab === 'mine' && <Mine ctx={ctx} coins={liveCoins} />}
           {tab === 'earn' && <Earn ctx={ctx} />}
           {tab === 'friends' && <Friends ctx={ctx} />}
@@ -572,6 +657,19 @@ export default function App() {
                 <button className="btn" onClick={() => setGemQ((q0) => q0.slice(1))}>Awesome</button>
               </div>
             </div>
+          </div>
+        )}
+
+        {verifying && (
+          <div className="verify-chip" role="status" data-testid="verifying">
+            <i aria-hidden="true" /> Verifying your reward…
+          </div>
+        )}
+        {retry && !verifying && (
+          <div className="retry-bar" role="alert" data-testid="retry-bar">
+            <span>Ad finished? Your reward is not confirmed yet.</span>
+            <button className="btn sm" disabled={adBusy} onClick={checkReward}>Check reward</button>
+            <button className="btn sm ghost" onClick={() => setRetry(null)}>Close</button>
           </div>
         )}
 

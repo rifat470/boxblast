@@ -15,6 +15,7 @@ export type State = {
   regenEveryS: number; regenPerTick: number; pph: number; tapLevel: number; boosts: Boost[]; cards: CardT[];
   daily: { rewards: number[]; claimedToday: boolean; filled: number; next: number };
   ads: { left: number; used: number; perDay: number; nextAt: number; reward: number; gemSteps: Record<string, string> };
+  match: { level: number; hearts: number; maxHearts: number; nextHeartAt: number; preview: { level: number; colors: number; moves: number; goals: { color: number; n: number }[] }; round: { id: string; level: number; extra: number } | null; canDouble: { id: string; coins: number } | null; gemsToday: number; gemCap: number; extraMoves: number; maxExtra: number };
   offline: { pending: number; freeRatio: number }; turbo: { until: number; seconds: number; mult: number };
   gems: GemInfo[]; refCount: number; refReward: { inviter: number; invitee: number }; refSteps: RefStep[];
   dailyTasks: { done: number[]; bonusGot: boolean; bonusReady: boolean; cooldownS: number; rows: { slot: number; network: 'adsgram' | 'monetag' | 'tads'; coins: number; energy: boolean; until: number }[]; bonus: { coins: number; gem: string } };

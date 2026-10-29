@@ -118,3 +118,18 @@ export const levelOf = (totalEarned: number): LevelDef => {
 
 // ---- Box designs: one per level (lv1..lv10). Locked until the level is really reached. ----
 export const SKINS = LEVELS.map((l) => ({ id: `lv${l.lvl}`, name: l.name, level: l.lvl }));
+
+// ---- Match (swap puzzle): small coloured boxes, 3 in a row burst, some boxes hide gems ----
+export const MATCH = {
+  heartsMax: 5,
+  heartRegenS: 30 * 60, // one heart comes back every 30 minutes
+  extraMoves: 5, // one optional ad = +5 moves
+  maxExtraGrants: 2, // per round
+  gemCapPerDay: 6, // gems that can be found in boxes per day
+  winsPerDay: 40, // wins that pay coins and gems per day (a bot cannot farm without limit); levels still count after that
+  coinsBase: 300,
+  coinsPerLevel: 60,
+  coinsPerLeftover: 20, // per unused move
+  resumeS: 15 * 60, // an unfinished round can be resumed (same board, no extra heart) for 15 minutes
+  minMoveMs: 250, // a human needs time to make a move; instant "perfect" submissions are refused
+};

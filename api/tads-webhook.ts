@@ -1,4 +1,4 @@
-import { db } from './_lib/db.js';
+import { recordAdEvent } from './_lib/adEvents.js';
 
 // TADS webhook (Fullscreen widget: called when the user viewed the ad). In the TADS dashboard, widget 12842,
 // set the Webhook URL to:  https://YOUR-APP.vercel.app/api/tads-webhook?secret=YOUR_SECRET
@@ -14,7 +14,7 @@ export default async function handler(req: any, res: any) {
   const id = Number(tid);
   if (!/^\d{3,15}$/.test(tid) || !Number.isSafeInteger(id)) return res.status(200).json({ ok: true, ignored: true });
   try {
-    const { error } = await db().from('ad_events').insert({ tg_id: id, network: 'tads' });
+    const { error } = await recordAdEvent(id, 'tads');
     if (error) throw error;
     return res.status(200).json({ ok: true });
   } catch (e) {
