@@ -9,7 +9,126 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&family=Archivo:wght@600;800&display=swap" rel="stylesheet" />
+    <script>
+      // 1. Ensure Telegram.WebApp initializes with modern version (8.0) when no version param is in URL hash
+      try {
+        var h = window.location.hash || '';
+        if (!h.includes('tgWebAppVersion=')) {
+          var p = {};
+          try {
+            var raw = window.sessionStorage.getItem('__telegram__initParams');
+            if (raw) p = JSON.parse(raw) || {};
+          } catch (e) {}
+          if (!p.tgWebAppVersion || parseFloat(p.tgWebAppVersion) < 6.9) {
+            p.tgWebAppVersion = '8.0';
+            window.sessionStorage.setItem('__telegram__initParams', JSON.stringify(p));
+          }
+        }
+      } catch (e) {}
+    </script>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script>
+      // 2. Wrap / polyfill Telegram.WebApp.CloudStorage to prevent
+      // "[Telegram.WebApp] CloudStorage is not supported in version 6.0" errors
+      (function() {
+        try {
+          var patch = function() {
+            var tg = window.Telegram && window.Telegram.WebApp;
+            if (!tg || !tg.CloudStorage) return;
+            var cs = tg.CloudStorage;
+            var prefix = 'tg_cs_';
+            var fallback = {
+              setItem: function(key, val, cb) {
+                try {
+                  localStorage.setItem(prefix + key, String(val));
+                  if (typeof cb === 'function') cb(null, true);
+                } catch (e) {
+                  if (typeof cb === 'function') cb(e, false);
+                }
+                return cs;
+              },
+              getItem: function(key, cb) {
+                try {
+                  var v = localStorage.getItem(prefix + key);
+                  if (typeof cb === 'function') cb(null, v !== null ? v : '');
+                } catch (e) {
+                  if (typeof cb === 'function') cb(e, '');
+                }
+                return cs;
+              },
+              getItems: function(keys, cb) {
+                try {
+                  var res = {};
+                  (keys || []).forEach(function(k) {
+                    var v = localStorage.getItem(prefix + k);
+                    res[k] = v !== null ? v : '';
+                  });
+                  if (typeof cb === 'function') cb(null, res);
+                } catch (e) {
+                  if (typeof cb === 'function') cb(e, {});
+                }
+                return cs;
+              },
+              removeItem: function(key, cb) {
+                try {
+                  localStorage.removeItem(prefix + key);
+                  if (typeof cb === 'function') cb(null, true);
+                } catch (e) {
+                  if (typeof cb === 'function') cb(e, false);
+                }
+                return cs;
+              },
+              removeItems: function(keys, cb) {
+                try {
+                  (keys || []).forEach(function(k) {
+                    localStorage.removeItem(prefix + k);
+                  });
+                  if (typeof cb === 'function') cb(null, true);
+                } catch (e) {
+                  if (typeof cb === 'function') cb(e, false);
+                }
+                return cs;
+              },
+              getKeys: function(cb) {
+                try {
+                  var list = [];
+                  for (var i = 0; i < localStorage.length; i++) {
+                    var k = localStorage.key(i);
+                    if (k && k.indexOf(prefix) === 0) list.push(k.slice(prefix.length));
+                  }
+                  if (typeof cb === 'function') cb(null, list);
+                } catch (e) {
+                  if (typeof cb === 'function') cb(e, []);
+                }
+                return cs;
+              }
+            };
+
+            ['setItem', 'getItem', 'getItems', 'removeItem', 'removeItems', 'getKeys'].forEach(function(m) {
+              var orig = cs[m];
+              if (!orig || orig.__patched) return;
+              var fn = function() {
+                if (!tg.isVersionAtLeast || !tg.isVersionAtLeast('6.9')) {
+                  return fallback[m].apply(cs, arguments);
+                }
+                try {
+                  return orig.apply(cs, arguments);
+                } catch (err) {
+                  return fallback[m].apply(cs, arguments);
+                }
+              };
+              fn.__patched = true;
+              cs[m] = fn;
+            });
+          };
+
+          patch();
+          if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', patch);
+          }
+        } catch (e) {}
+      })();
+    </script>
     <script src="https://sad.adsgram.ai/js/sad.min.js"></script>
     <script src='//libtl.com/sdk.js' data-zone='12108818' data-sdk='show_12108818'></script>
     <script src="https://w.tads.me/widget.js"></script>
