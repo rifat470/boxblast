@@ -46,6 +46,8 @@ export type Player = {
   total_blasts: number;
   gems: Record<string, number>;
   version: number;
+  remind_on?: boolean; // only present after supabase/migration_v6.sql
+  remind_last?: string;
 };
 
 const WRITABLE = [
@@ -83,4 +85,10 @@ export async function mutate<R = void>(
     if (data) return { player: data as Player, result: out.result as R };
   }
   throw new HttpError(409, 'Busy, please try again');
+}
+
+// Reminder switch. A direct update on purpose: players whose database has not run migration_v6.sql are not affected.
+export async function setRemindFlag(id: number, on: boolean): Promise<boolean> {
+  const { error } = await db().from('players').update({ remind_on: on }).eq('tg_id', id);
+  return !error;
 }

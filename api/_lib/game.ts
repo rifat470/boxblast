@@ -371,6 +371,8 @@ export function view(p: Player, now: number) {
     },
     ads: { left: l.left, used: l.used, perDay: AD.perDay, nextAt: l.nextAt, reward: AD.reward, gemSteps: AD_GEMS },
     gems: GEMS.map((g) => ({ id: g.id, name: g.name, rank: g.rank, count: gems[g.id] || 0 })),
+    remindReady: p.remind_on !== undefined,
+    remind: p.remind_on !== false,
     offline: { pending: Math.floor(Number(p.claimed?.pend || 0)), freeRatio: OFFLINE.freeRatio },
     turbo: { until: Number(p.claimed?.turbo || 0), seconds: TURBO.seconds, mult: TURBO.mult },
     match: matchView(p, now),
@@ -432,8 +434,26 @@ const roundInfo = (r: MatchRound) => ({
   moves: levelInfo(r.lvl).moves + r.extra,
 });
 
+export const gateDue = (lvl: number) => MATCH.gate.everyLevels > 0 && lvl >= MATCH.gate.fromLevel && lvl % MATCH.gate.everyLevels === 0;
+
+/** Opens the next level after the ad gate: with a finished Monetag ad ('ad') or, when no ad can be shown, a few times a day ('noad'). */
+export function matchGate(p: Player, via: 'ad' | 'noad', now: number) {
+  const m = getM(p);
+  if (!m.g) throw new HttpError(409, 'The next level is already open');
+  if (via === 'noad') {
+    const sk = m.sk && m.sk.d === day(now) ? m.sk : { d: day(now), n: 0 };
+    if (sk.n >= MATCH.gate.noAdSkipsPerDay) throw new HttpError(409, 'No ad is available right now. Please try again in a minute.');
+    sk.n += 1;
+    m.sk = sk;
+  }
+  m.g = 0;
+  putM(p, m);
+  return { player: p, result: { unlocked: true, via } };
+}
+
 export function matchStart(p: Player, now: number) {
   const m = getM(p);
+  if (m.g && MATCH.gate.everyLevels > 0) throw new HttpError(409, 'ad_gate'); // the next level is locked until the short ad is watched (only when the gate is switched on)
   const h = heartsNow(m, now);
   // An unfinished round is resumed (same board, no extra heart) for a while, so closing the app is never punished.
   if (m.r && !m.r.done && now - m.r.t < MATCH.resumeS * 1000) {
@@ -496,6 +516,7 @@ export function matchFinish(p: Player, id: string, moves: any, now: number) {
     }
     m.wd = wd;
     m.lvl = r.lvl + 1;
+    if (gateDue(r.lvl)) m.g = r.lvl; // the next level opens after a short ad
     const h = heartsNow(m, now);
     m.h = Math.min(MATCH.heartsMax, h.n + 1); // a win gives the heart back
     m.ht = m.h >= MATCH.heartsMax ? now : h.t;
@@ -552,10 +573,24 @@ export function matchView(p: Player, now: number) {
     nextHeartAt: h.n >= MATCH.heartsMax ? 0 : h.t + MATCH.heartRegenS * 1000,
     preview: levelInfo(Number(m.lvl) || 1),
     round: r && now - r.t < MATCH.resumeS * 1000 ? { id: r.id, level: r.lvl, extra: r.extra } : null,
+    gate: m.g && MATCH.gate.everyLevels > 0 ? { level: Number(m.lvl) || 1 } : null,
     canDouble: m.w && !m.w.dbl ? { id: m.w.id, coins: m.w.coins } : null,
     gemsToday: gd.n,
     gemCap: MATCH.gemCapPerDay,
     extraMoves: MATCH.extraMoves,
     maxExtra: MATCH.extraMoves * MATCH.maxExtraGrants,
   };
+}
+
+/**
+ * Why we may send ONE gentle reminder today (null = no reason, so no message).
+ * Only real reasons: hearts are back, the daily reward is waiting, or the warehouse earned coins.
+ */
+export function reminderReason(p: Player, now: number): 'hearts' | 'daily' | 'offline' | null {
+  const m = getM(p);
+  const hearts = heartsNow(m, now).n;
+  if (hearts >= 3) return 'hearts';
+  if (p.last_daily !== day(now)) return 'daily';
+  if (Number(p.claimed?.pend || 0) >= 200) return 'offline';
+  return null;
 }

@@ -42,11 +42,11 @@ export const OFFLINE = { afterS: 600, freeRatio: 0.5 };
 export const TURBO = { seconds: 60, mult: 3 };
 
 // ---- Daily Tasks: three optional ads per day. Each row has its own ad network and its own reward. ----
-export type DailyTaskDef = { slot: number; network: 'adsgram' | 'monetag' | 'tads'; coins: number; energy: boolean; gem: string | null };
+export type DailyTaskDef = { slot: number; network: 'adsgram' | 'monetag'; coins: number; energy: boolean; gem: string | null };
 export const DAILY_TASKS: DailyTaskDef[] = [
   { slot: 1, network: 'adsgram', coins: 400, energy: false, gem: null },
   { slot: 2, network: 'monetag', coins: 800, energy: true, gem: null },
-  { slot: 3, network: 'tads', coins: 1500, energy: false, gem: null },
+  { slot: 3, network: 'monetag', coins: 1500, energy: false, gem: null },
 ];
 // Finish all three rows in one day and a bonus gem is added to the collection.
 export const DAILY_TASKS_BONUS = { coins: 2000, gem: 'white' };
@@ -54,7 +54,7 @@ export const DAILY_TASKS_BONUS = { coins: 2000, gem: 'white' };
 export const DAILY_TASK_COOLDOWN_S = 3 * 3600;
 // The special "Bonus coins" ad (Earn tab). Adjust perDay if you want it more often.
 export const BONUS_AD = { coins: 5000, gem: 'blue', perDay: 1 };
-export const AD_NETWORKS = ['adsgram', 'monetag', 'tads'] as const;
+export const AD_NETWORKS = ['adsgram', 'monetag'] as const;
 
 // ---- Gems: in-game collectibles with NO cash value. ----
 export type GemDef = { id: string; name: string; rank: number };
@@ -132,4 +132,8 @@ export const MATCH = {
   coinsPerLeftover: 20, // per unused move
   resumeS: 15 * 60, // an unfinished round can be resumed (same board, no extra heart) for 15 minutes
   minMoveMs: 250, // a human needs time to make a move; instant "perfect" submissions are refused
+  // Level gate (OFF by default: ads are optional). To require one short Monetag ad before the next level, set the Vercel
+  // environment variable MATCH_GATE_EVERY=1 (every level) or 2, 3 ... (every 2nd, 3rd level) and redeploy. MATCH_GATE_FROM = first level that
+  // asks for the ad. If no ad can be shown the player is never trapped: a limited number of "no ad" unlocks per day.
+  gate: { fromLevel: Math.max(1, Number(process.env.MATCH_GATE_FROM || 1) || 1), everyLevels: Math.max(0, Number(process.env.MATCH_GATE_EVERY || 0) || 0), noAdSkipsPerDay: 3 },
 };
