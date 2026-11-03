@@ -21,6 +21,8 @@ export default async function handler(_req: any, res: any) {
       out.migration_v4 = c.error ? 'MISSING - run supabase/migration_v4.sql in Supabase SQL Editor' : 'ok';
       const b = await db().from('ad_events').select('id,network,ymid', { head: true, count: 'exact' }).limit(1);
       out.migration_v5 = b.error ? 'MISSING - run supabase/migration_v5.sql in Supabase SQL Editor' : 'ok';
+      const d = await db().from('players').select('remind_on,remind_last', { head: true, count: 'exact' }).limit(1);
+      out.migration_v6 = d.error ? 'MISSING (only needed for reminders) - run supabase/migration_v6.sql' : 'ok';
     }
   } catch (e: any) {
     out.players_table = 'exception: ' + String(e?.message || e).slice(0, 140);

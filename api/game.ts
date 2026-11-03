@@ -1,9 +1,9 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { verifyInitData } from './_lib/auth.js';
-import { db, getPlayer, HttpError, mutate, type Player } from './_lib/db.js';
+import { db, getPlayer, HttpError, mutate, setRemindFlag, type Player } from './_lib/db.js';
 import { AD, REF, TASKS, levelOf } from './_lib/config.js';
 import {
-  blast, buyBoost, buyCard, checkAdAllowed, claimDaily, claimDailyBonus, claimDailyTask, claimLevel, claimOffline, grantTurbo, matchDouble, matchExtra, matchFinish, matchHeart, matchStart, claimRef, claimTask, grantAd, newPlayer, setSkin, settle, view,
+  blast, buyBoost, buyCard, checkAdAllowed, claimDaily, claimDailyBonus, claimDailyTask, claimLevel, claimOffline, grantTurbo, matchDouble, matchExtra, matchFinish, matchHeart, matchStart, matchGate, claimRef, claimTask, grantAd, newPlayer, setSkin, settle, view,
 } from './_lib/game.js';
 
 const bad = (m: string) => new HttpError(400, m);
@@ -26,7 +26,7 @@ async function isChannelMember(userId: number) {
 }
 
 // ---- Ad proof ----
-// 1) Strong proof: the ad network's own server told us (Adsgram reward URL / Monetag postback / TADS webhook) -> an unclaimed ad_events row.
+// 1) Strong proof: the ad network's own server told us (Adsgram reward URL / Monetag postback) -> an unclaimed ad_events row.
 // 2) Fallback (AD_TRUST=client, the default): the ad SDK in the player's phone reported "watched till the end" AND the player holds a
 //    signed ticket from /adStart that is at least 4 seconds old and used only once. The reward limits (35 s rest, daily cap) still apply.
 //    Set AD_TRUST=strict once your Reward URL / postback / webhook work and you only want server proof.
@@ -85,18 +85,18 @@ async function consumeAdConfirmation(id: number, now: number, network = 'adsgram
   return true;
 }
 
-async function adGate(id: number, now: number, body: any, pre?: (st: any) => unknown) {
+async function adGate(id: number, now: number, body: any, pre?: (st: any) => unknown, noLimits = false) {
   const cur = await getPlayer(id);
   if (!cur) throw new HttpError(404, 'Player not found');
   const st = settle(cur, now);
-  checkAdAllowed(st, now);
+  if (!noLimits) checkAdAllowed(st, now);
   if (pre) pre(st);
   if (!(await consumeAdConfirmation(id, now, netOf(body?.network), body?.att))) throw new HttpError(409, 'ad_not_confirmed');
 }
 
 const copyP = (st: any) => ({ ...st, claimed: { ...st.claimed }, gems: { ...(st.gems || {}) } });
 
-const netOf = (n: any) => (['adsgram', 'monetag', 'tads'].includes(String(n)) ? String(n) : 'adsgram');
+const netOf = (n: any) => (['adsgram', 'monetag'].includes(String(n)) ? String(n) : 'adsgram');
 
 async function init(auth: { user: any; startParam: string }, now: number) {
   const { user, startParam } = auth;
@@ -180,6 +180,13 @@ async function route(auth: { user: any; startParam: string }, body: any) {
       await adGate(id, now, body, (st) => matchExtra(copyP(st), String(body.id), now));
       return act((s) => matchExtra(s, String(body.id), now));
     }
+    case 'matchGate': {
+      // "No ad could be shown" never traps the player (a few times a day); otherwise a finished MONETAG ad is required.
+      if (body.skip === 'noad') return act((s) => matchGate(s, 'noad', now));
+      if (body.network !== 'monetag') throw new HttpError(400, 'The level ad must be a Monetag ad');
+      await adGate(id, now, body, (st) => matchGate(copyP(st), 'ad', now), true);
+      return act((s) => matchGate(s, 'ad', now));
+    }
     case 'matchHeart': {
       await adGate(id, now, body, (st) => matchHeart(copyP(st), now));
       return act((s) => matchHeart(s, now));
@@ -191,6 +198,11 @@ async function route(auth: { user: any; startParam: string }, body: any) {
     case 'turbo': {
       await adGate(id, now, body);
       return act((s) => grantTurbo(s, now));
+    }
+    case 'setRemind': {
+      // Gentle reminders on/off. The player decides; nothing is sent when it is off.
+      if (!(await setRemindFlag(id, !!body.on))) throw new HttpError(409, 'Reminders need the database update (supabase/migration_v6.sql).');
+      return act((s) => ({ player: s }));
     }
     case 'setSkin':
       return act((s) => setSkin(s, String(body.id)));
