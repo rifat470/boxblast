@@ -37,7 +37,7 @@ export function Privacy() {
       <p className="small muted">Short version. The full text is at <a href="/privacy.html" target="_blank" rel="noreferrer">/privacy.html</a>.</p>
             <p><b>What we collect.</b> We do not ask for your phone number, email, real name or any private information. Telegram gives the game your public Telegram user ID, first name and username, and we store them together with your game progress (coins, levels, gems, invites) so that your account works. We also store upgrades, invites and activity timestamps.</p>
       <p><b>What we do not collect.</b> No phone number, email address, contacts, location or messages. We do not sell your data.</p>
-      <p><b>Ads.</b> When you choose to watch an ad, our ad partners (Adsgram, Monetag and TADS) receive your Telegram user ID to show the ad and confirm that it was watched.</p>
+      <p><b>Ads.</b> When you choose to watch an ad, our ad partners (Adsgram and Monetag) receive your Telegram user ID to show the ad and confirm that it was watched.</p>
       <p><b>Storage.</b> Data is stored securely with our database provider.</p>
       <p><b>Your choices.</b> You can ask us to delete your data at any time.</p>
     </div>

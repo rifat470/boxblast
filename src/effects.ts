@@ -78,6 +78,97 @@ class SoundEngine {
     }
   }
 
+  // One note per chain step: a rising pentatonic scale, so a long chain sounds like a little melody.
+  playChain(n: number) {
+    try {
+      this.initCtx();
+      if (!this.ctx) return;
+      const scale = [523.25, 587.33, 659.25, 783.99, 880, 1046.5, 1174.66, 1318.5];
+      const f = scale[Math.min(Math.max(n, 1) - 1, scale.length - 1)];
+      const t = this.ctx.currentTime;
+      [f, f * 1.5].forEach((fr, i) => {
+        if (!this.ctx) return;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = i === 0 ? 'triangle' : 'sine';
+        osc.frequency.setValueAtTime(fr, t + i * 0.03);
+        gain.gain.setValueAtTime(i === 0 ? 0.2 : 0.09, t + i * 0.03);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.32);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(t + i * 0.03);
+        osc.stop(t + 0.34);
+      });
+    } catch {
+      /* ignore */
+    }
+  }
+
+  playBomb() {
+    try {
+      this.initCtx();
+      if (!this.ctx) return;
+      const t = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(180, t);
+      osc.frequency.exponentialRampToValueAtTime(38, t + 0.34);
+      gain.gain.setValueAtTime(0.32, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.38);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(t);
+      osc.stop(t + 0.4);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  playRainbow() {
+    try {
+      this.initCtx();
+      if (!this.ctx) return;
+      const t = this.ctx.currentTime;
+      [523.25, 659.25, 783.99, 1046.5, 1318.5, 1568].forEach((fr, i) => {
+        if (!this.ctx) return;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(fr, t + i * 0.055);
+        gain.gain.setValueAtTime(0.16, t + i * 0.055);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + i * 0.055 + 0.3);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(t + i * 0.055);
+        osc.stop(t + i * 0.055 + 0.32);
+      });
+    } catch {
+      /* ignore */
+    }
+  }
+
+  playSpawn() {
+    try {
+      this.initCtx();
+      if (!this.ctx) return;
+      const t = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(880, t);
+      osc.frequency.exponentialRampToValueAtTime(1760, t + 0.16);
+      gain.gain.setValueAtTime(0.18, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(t);
+      osc.stop(t + 0.24);
+    } catch {
+      /* ignore */
+    }
+  }
+
   playMiss() {
     try {
       this.initCtx();

@@ -1,13 +1,12 @@
-// Rewarded ads: Adsgram (block 55501), Monetag (zone 12108818) and TADS (widget 12842).
+// Ads: Adsgram (block 55501) and Monetag (zone 12108818).
 // An ad is ONLY started by an explicit tap. The reward is NEVER granted here: the app server pays only after the
-// ad network's own server confirmation (Adsgram reward URL, Monetag postback, TADS webhook).
+// ad network's own server confirmation (Adsgram reward URL, Monetag postback) or the signed ticket.
 const env = (import.meta as any).env || {};
 const ADSGRAM_BLOCK: string = String(env.VITE_ADSGRAM_BLOCK_ID || '55501').replace(/\D/g, '');
 const MONETAG_ZONE: string = String(env.VITE_MONETAG_ZONE_ID || '12108818').replace(/\D/g, '');
-const TADS_WIDGET: number = Number(String(env.VITE_TADS_WIDGET_ID || '12842').replace(/\D/g, ''));
 const START_TIMEOUT_MS = 5000; // if a network cannot start its ad within 5 seconds, we move on
 
-export type Net = 'adsgram' | 'monetag' | 'tads';
+export type Net = 'adsgram' | 'monetag';
 export type AdStatus = 'ok' | 'noad' | 'skipped' | 'unavailable';
 export type AdResult = { status: AdStatus; network: Net };
 
@@ -31,9 +30,9 @@ async function showAdsgram(): Promise<AdStatus> {
 
 // ---------- Monetag ----------
 // The ad is preloaded first. If it is not ready within 5 seconds (or the feed is empty) we report 'noad'.
-const makeYmid = () => {
+const makeYmid = (tag = '') => {
   const id = w.Telegram?.WebApp?.initDataUnsafe?.user?.id || 0;
-  return `${id}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  return `${id}_${tag}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 };
 async function showMonetag(placement: string): Promise<AdStatus> {
   const fn = w[`show_${MONETAG_ZONE}`];
@@ -54,73 +53,11 @@ async function showMonetag(placement: string): Promise<AdStatus> {
   }
 }
 
-// ---------- TADS (fullscreen rewarded widget) ----------
-let tadsCtl: any;
-let tadsResolve: ((s: AdStatus) => void) | null = null;
-const tadsReady = () => !!(w.tads && typeof w.tads.init === 'function');
-async function waitTads(): Promise<boolean> {
-  for (let i = 0; i < 40 && !tadsReady(); i++) await sleep(50);
-  if (tadsReady()) return true;
-  return false;
-}
-// TADS fullscreen: showAd() asks for the ad and opens the overlay.
-//  - rejection / onAdsNotFound            = no ad            -> caller may fall back (Adsgram)
-//  - nothing started within 5 seconds      = no ad            -> caller may fall back (Adsgram)
-//  - onShowReward callback                 = watched fully    -> reward
-//  - overlay appeared and then vanished with no reward = closed early -> no reward, no fallback
-const tadsOverlay = () =>
-  !!document.querySelector('iframe[src*="tads"], [id*="tads" i]:not(script), [class*="tads" i]:not(script)');
-async function showTads(): Promise<AdStatus> {
-  if (!(await waitTads())) return 'unavailable';
-  try {
-    if (!tadsCtl) {
-      tadsCtl =
-        w.tads.controllers?.[TADS_WIDGET] ||
-        w.tads.init({
-          widgetId: TADS_WIDGET,
-          type: 'fullscreen',
-          debug: false,
-          onShowReward: () => tadsResolve?.('ok'),
-          onAdsNotFound: () => tadsResolve?.('noad'),
-        });
-    }
-    if (!tadsCtl || typeof tadsCtl.showAd !== 'function') return 'unavailable';
-    const done = new Promise<AdStatus>((res) => (tadsResolve = res));
-    let opened = false;
-    tadsCtl
-      .showAd()
-      .then(() => {
-        opened = true;
-      })
-      .catch(() => tadsResolve?.('noad'));
-    const t0 = Date.now();
-    const watcher = (async (): Promise<AdStatus> => {
-      let seen = false;
-      let gone = 0;
-      while (tadsResolve) {
-        await sleep(250);
-        if (tadsOverlay()) {
-          seen = true;
-          gone = 0;
-        } else if (seen && ++gone >= 3) return 'skipped'; // the ad screen closed without the reward callback
-        if (!seen && !opened && Date.now() - t0 >= START_TIMEOUT_MS) return 'noad'; // nothing started in 5 seconds
-        if (Date.now() - t0 > 120000) return 'skipped';
-      }
-      return 'skipped';
-    })();
-    return await Promise.race([done, watcher]);
-  } catch {
-    return 'noad';
-  } finally {
-    tadsResolve = null;
-  }
-}
-
 // Safety net: no matter what an ad network does, the app is never stuck waiting longer than this.
 const WATCHDOG_MS = 4 * 60 * 1000;
 
 async function run(net: Net, placement: string): Promise<AdStatus> {
-  const job = net === 'adsgram' ? showAdsgram() : net === 'monetag' ? showMonetag(placement) : showTads();
+  const job = net === 'adsgram' ? showAdsgram() : showMonetag(placement);
   const r = await withTimeout(job, WATCHDOG_MS);
   return r === 'timeout' ? 'skipped' : r;
 }
@@ -138,3 +75,4 @@ export async function watchAd(order: Net[], placement: string): Promise<AdResult
   }
   return last;
 }
+

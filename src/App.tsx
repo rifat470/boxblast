@@ -32,8 +32,8 @@ const BOT_LINK: string = String((import.meta as any).env?.VITE_BOT_LINK || '').t
 
 export type AdKind = 'coins' | 'energy' | 'daily';
 // Which network goes first for each button; the next one is used only if the first has no ad within 5 seconds.
-const ORDER: Record<AdKind, Net[]> = { energy: ['monetag', 'adsgram'], coins: ['adsgram', 'monetag'], daily: ['tads', 'adsgram'] };
-const TASK_ORDER: Record<number, Net[]> = { 1: ['adsgram'], 2: ['monetag', 'adsgram'], 3: ['tads', 'adsgram'] };
+const ORDER: Record<AdKind, Net[]> = { energy: ['monetag', 'adsgram'], coins: ['adsgram', 'monetag'], daily: ['adsgram', 'monetag'] };
+const TASK_ORDER: Record<number, Net[]> = { 1: ['adsgram'], 2: ['monetag', 'adsgram'], 3: ['monetag', 'adsgram'] };
 const BONUS_ORDER: Net[] = ['adsgram', 'monetag'];
 export type Ctx = {
   s: State;
@@ -47,6 +47,7 @@ export type Ctx = {
   dailyBonus: (double: boolean) => Promise<void>;
   turbo: () => Promise<void>;
   adAction: (placement: string, action: string, extra?: object) => Promise<any | null>;
+  gateAd: () => Promise<boolean>;
 };
 
 export default function App() {
@@ -274,7 +275,7 @@ export default function App() {
     }
   };
 
-  // Daily Tasks (3 rows): row 1 Adsgram, row 2 Monetag, row 3 TADS. Row 2 and 3 use Adsgram if their own network has no ad in 5 s.
+  // Daily Tasks (3 rows): row 1 Adsgram, row 2 Monetag, row 3 Monetag. Row 2 and 3 use Adsgram if their own network has no ad in 5 s.
   const dailyTask = async (slot: number) => {
     if (adBusy || !s) return;
     if (s.ads.left <= 0) return flash('Daily ad limit reached. Come back tomorrow.');
@@ -364,6 +365,39 @@ export default function App() {
     } catch (e: any) {
       adErr(e);
       return null;
+    } finally {
+      setAdBusy(false);
+    }
+  };
+
+  // The NEXT level opens after one short Monetag ad. The server checks it (a finished ad, or the signed ticket) before it opens the level.
+  // If Monetag has no ad at all (no inventory, blocked), the player is never trapped: the server allows a few "no ad" unlocks a day.
+  const gateAd = async (): Promise<boolean> => {
+    if (adBusy || !s) return false;
+    setAdBusy(true);
+    try {
+      sound.playTap();
+      const att = await startAd();
+      const r = await watchAd(['monetag'], 'level_gate');
+      if (r.status === 'unavailable' || r.status === 'noad') {
+        const res = await call('matchGate', { skip: 'noad' });
+        put(res.state);
+        flash('No ad is available right now, so the next level is open for you.', 4000);
+        return true;
+      }
+      if (r.status === 'skipped') {
+        flash('Watch the whole ad to open the next level.', 3500);
+        return false;
+      }
+      await flushAll();
+      const res = await confirmed((net) => call('matchGate', { network: net, att }), r.network);
+      if (!res) return false;
+      put(res.state);
+      sound.playLevelUp();
+      return true;
+    } catch (e: any) {
+      adErr(e);
+      return false;
     } finally {
       setAdBusy(false);
     }
@@ -493,7 +527,7 @@ export default function App() {
   const skinLvl = Math.min(lvl, Math.max(1, Number(/^lv(\d+)$/.exec(s.skin)?.[1] || lvl)));
 
   turboRef.current = s.turbo.until;
-  const ctx: Ctx = { s, nowMs, act, flash, adFor, adBusy, showGem, dailyTask, dailyBonus, turbo, adAction };
+  const ctx: Ctx = { s, nowMs, act, flash, adFor, adBusy, showGem, dailyTask, dailyBonus, turbo, adAction, gateAd };
 
   return (
     <div className="relative min-h-screen text-[#f4efe6] overflow-x-hidden">

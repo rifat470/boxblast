@@ -190,6 +190,29 @@ export default function Profile({ ctx }: ProfileProps) {
             </p>
           </div>
 
+          {/* Gentle reminders */}
+          <div className="bg-[#151b27] border border-white/10 rounded-2xl p-4 shadow-lg flex items-center justify-between gap-3" data-testid="remind-card">
+            <div className="min-w-0">
+              <h3 className="text-base font-extrabold text-white m-0">Reminders</h3>
+              <p className="text-[11px] text-slate-400 m-0 mt-1 leading-relaxed">
+                {s.remindReady
+                  ? 'One gentle message a day in Telegram when your hearts are back, your daily reward waits or your warehouse earned coins. You can turn it off any time.'
+                  : 'Reminders need a small database update (supabase/migration_v6.sql).'}
+              </p>
+            </div>
+            <button
+              className={'btn sm' + (s.remind ? '' : ' ghost')}
+              data-testid="remind-toggle"
+              disabled={!s.remindReady}
+              onClick={async () => {
+                const r = await ctx.act('setRemind', { on: !s.remind });
+                if (r) ctx.flash(r.state.remind ? 'Reminders are on' : 'Reminders are off');
+              }}
+            >
+              {s.remind ? 'On' : 'Off'}
+            </button>
+          </div>
+
           {/* Friends Invited Section */}
           <div className="bg-[#151b27] border border-white/10 rounded-2xl p-4 shadow-lg flex flex-col gap-3">
             <div className="flex justify-between items-center">
@@ -490,7 +513,7 @@ export default function Profile({ ctx }: ProfileProps) {
               <div className="bg-[#18202d] border border-white/5 rounded-xl p-3.5 flex flex-col gap-1.5">
                 <b className="text-white text-sm font-bold">4. Optional Advertising</b>
                 <p className="m-0 text-slate-300">
-                  Ads in BoxBlast are completely optional. When you choose to tap an ad button to refill energy or earn coins, our ad partners (Adsgram, Monetag and TADS) receive your Telegram user ID to show the ad and confirm that it was watched.
+                  Ads in BoxBlast are completely optional. When you choose to tap an ad button to refill energy or earn coins, our ad partners (Adsgram and Monetag) receive your Telegram user ID to show the ad and confirm that it was watched.
                 </p>
               </div>
 
